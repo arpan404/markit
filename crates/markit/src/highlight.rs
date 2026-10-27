@@ -90,6 +90,17 @@ impl Tone {
 fn word_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$')
 }
+/// UTF-16 length with a SIMD-friendly ASCII fast path. Code is usually ASCII;
+/// `encode_utf16().count()` fully decodes UTF-8, which costs a second pass
+/// over every run. Identical result on all inputs.
+fn utf16_len(text: &str) -> usize {
+    let bytes = text.as_bytes();
+    if bytes.is_ascii() {
+        bytes.len()
+    } else {
+        text.encode_utf16().count()
+    }
+}
 /// Length of the UTF-8 sequence starting at a known character boundary.
 /// The scanner only advances by whole characters, so `bytes[at]` is always a
 /// leading byte and this matches `str::chars().next().len_utf8()`.
@@ -720,7 +731,7 @@ pub(crate) fn append_syntax_spans(
     let mut start = 0;
     let mut offset = base;
     for &(end, tone) in &lexed.runs {
-        let next = offset + code[start..end].encode_utf16().count();
+        let next = offset + utf16_len(&code[start..end]);
         if next > offset {
             let (light, dark) = tone.colors();
             spans.push(crate::Span {
@@ -750,7 +761,7 @@ pub(crate) fn code_document(code: &str, language: &str) -> crate::Document {
         },
     });
     for &(end, tone) in &lexed.runs {
-        let next = offset + code[start..end].encode_utf16().count();
+        let next = offset + utf16_len(&code[start..end]);
         if !lexed.plain && next > offset {
             let (light, dark) = tone.colors();
             spans.push(crate::Span {
@@ -820,6 +831,20 @@ mod tests {
             let (light_rgb, dark_rgb) = tone.rgb();
             assert_eq!(light_rgb, u32::from_str_radix(&light[1..], 16).unwrap());
             assert_eq!(dark_rgb, u32::from_str_radix(&dark[1..], 16).unwrap());
+        }
+    }
+
+    #[test]
+    fn utf16_len_matches_encode_count() {
+        for text in [
+            "",
+            "fn main() {}",
+            "café",
+            "中文 rust",
+            "c 🦀",
+            "mix 🦀 é 中 end",
+        ] {
+            assert_eq!(utf16_len(text), text.encode_utf16().count());
         }
     }
 }
