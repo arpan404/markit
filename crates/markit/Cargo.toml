@@ -1,0 +1,42 @@
+[package]
+name = "markit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared Markdown engine for native text and WebAssembly"
+
+[dependencies]
+pulldown-cmark.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+latex-rust = { version = "=2.1.1", features = ["png"] }
+base64 = "0.22"
+linkify = "0.10"
+unicase = "2"
+
+# Oniguruma runs native grammar regexes without the portable backtracking VM.
+# Wasm keeps the pure Rust backend and does not need a C runtime or imports.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+syntect = { version = "5.3", default-features = false, features = ["parsing", "regex-onig"], optional = true }
+two-face = { version = "0.5.2", default-features = false, features = ["syntect-onig"], optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+syntect = { version = "5.3", default-features = false, features = ["parsing", "regex-fancy"], optional = true }
+two-face = { version = "0.5.2", default-features = false, features = ["syntect-fancy"], optional = true }
+
+[[bench]]
+name = "throughput"
+harness = false
+
+[features]
+default = []
+grammars = ["dep:syntect", "dep:two-face"]
+
+[[example]]
+name = "profile_highlight"
+required-features = ["grammars"]
+
+[[bench]]
+name = "features"
+path = "../../benchmarks/native-features.rs"
+harness = false

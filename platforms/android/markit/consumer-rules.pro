@@ -1,0 +1,1 @@
+-keep class dev.markit.Markit { native <methods>; }

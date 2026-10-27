@@ -1,0 +1,30 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Markit renderer</title><link rel="icon" href="data:,"><link rel="stylesheet" href="./style.css"><style>
+:root{color-scheme:light dark}*{box-sizing:border-box}body{margin:0;background:light-dark(#fff,#0d1117);color:light-dark(#24292f,#e6edf3);font:14px system-ui,sans-serif}main{max-width:1400px;margin:auto;padding:24px}header.page{display:flex;justify-content:space-between;gap:24px;align-items:center;border-bottom:1px solid light-dark(#d0d7de,#30363d);padding-bottom:20px;margin-bottom:20px}h1{font-size:22px;margin:0 0 6px}p{margin:0;color:light-dark(#6e7781,#8b949e)}.actions{display:flex;gap:8px;flex-wrap:wrap}button{font:inherit;color:inherit;background:transparent;border:1px solid light-dark(#d0d7de,#30363d);border-radius:6px;padding:8px 12px;cursor:pointer}button:disabled{opacity:.5}.columns>section{min-width:0}.columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px}label{display:block;font-weight:600;margin-bottom:10px}textarea{width:100%;height:70vh;min-height:320px;padding:16px;border:1px solid light-dark(#d0d7de,#30363d);border-radius:8px;font:13px/1.6 ui-monospace,monospace;resize:vertical;background:light-dark(#f6f8fa,#161b22);color:inherit}#status{font-variant-numeric:tabular-nums;min-height:22px;padding-top:12px}#preview{min-width:0}#preview-title{font-weight:600;margin-bottom:16px}@media(max-width:750px){main{padding:16px}.columns{grid-template-columns:minmax(0,1fr)}textarea{height:260px}.page{align-items:flex-start!important;flex-direction:column}}
+</style></head><body><main><header class="page"><div><h1>Markit</h1><p>Rust Markdown, native clients, and WebAssembly.</p></div><div class="actions"><button id="sample">Reset example</button><button id="stream">Stream example</button><button id="large">Load 5,000 lines</button></div></header><div class="columns"><section><label for="source">Markdown source</label><textarea id="source" spellcheck="false"></textarea><div id="status" role="status">Loading renderer…</div></section><section><div id="preview-title">Rendered Markdown</div><article id="preview" aria-label="Rendered Markdown"></article></section></div></main><script type="module">
+import { MarkitRenderer } from './index.js';
+const source = document.querySelector('#source'), status = document.querySelector('#status');
+const example = '# One shared engine\n\n**Rust** parses Markdown and highlights code for iOS, Android, and the web. Try *editing this text*.\n\n- [x] Native text views\n- [x] WebAssembly worker\n- [x] Syntax highlighting and math\n\n## Code with a file label\n\n```ts title="src/hello.ts"\n// Colors come from the Rust engine.\nconst greeting: string = "Hello, world";\nconsole.log(greeting);\n```\n\n## Tables\n\n| Target | Rendering |\n| :--- | ---: |\n| iOS | UIKit / SwiftUI |\n| Android | Native views |\n| Web | Wasm worker |\n\n## Math\n\nA fraction \\(\\frac{x^2}{2}\\) stays inline.\n\n$$\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}$$\n\n```diff file=src/hello.ts\n-const speed = "unknown";\n+const speed = "measured";\n```\n\n> Raw HTML is displayed as text. Links and attachments stay under host control.\n\nVisit https://example.com or open `src/hello.ts:12`.\n';
+window.references = [];
+const renderer = new MarkitRenderer(document.querySelector('#preview'), {
+  codeRendering: new URL(location.href).searchParams.get('codeRendering') === 'webgpu' ? 'webgpu' : 'auto',
+  onReference(reference) { window.references.push(reference); status.textContent = `${reference.kind}: ${reference.target}`; },
+  onError(error) { status.textContent = error.message; }
+});
+window.renderer = renderer;
+let revision = 0;
+async function render(finalized = true) {
+  const current = ++revision, start = performance.now();
+  try { const result = await renderer.render(source.value,{finalized});
+    if (current === revision && !result.superseded) status.textContent = `Ready · ${(performance.now()-start).toFixed(1)} ms worker round trip · ${new TextEncoder().encode(source.value).length.toLocaleString()} bytes`;
+  } catch(error) { if (current === revision) status.textContent = error.message; }
+}
+source.addEventListener('input', () => { revision++; requestAnimationFrame(() => render()); });
+document.querySelector('#sample').onclick = () => { source.value = example; render(); };
+document.querySelector('#large').onclick = () => { source.value = '```rust title="large.rs"\n' + Array.from({length:5000},(_,i)=>`let value_${i} = ${i};`).join('\n') + '\n```\n'; render(); };
+document.querySelector('#stream').onclick = async () => {
+  source.value = ''; const button = document.querySelector('#stream'); button.disabled = true;
+  for (let i=0;i<example.length;i+=80) { source.value += example.slice(i,i+80); await render(false); }
+  await render(true); button.disabled = false;
+};
+source.value = example; render();
+</script></body></html>

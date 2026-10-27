@@ -1,0 +1,21 @@
+name: MarkitDemo
+options:
+  deploymentTarget:
+    iOS: '15.0'
+packages:
+  Markit:
+    path: ../../platforms/ios
+targets:
+  MarkitDemo:
+    type: application
+    platform: iOS
+    sources: [Sources]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.markit.demo
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        TARGETED_DEVICE_FAMILY: '1,2'
+        SWIFT_VERSION: '5.9'
+    dependencies:
+      - package: Markit

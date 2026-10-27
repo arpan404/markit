@@ -1,0 +1,145 @@
+{
+  "timestamp": "2026-10-27T19:54:33.123Z",
+  "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.8078.4 Safari/537.36",
+  "cross_origin_isolated": true,
+  "cold": [
+    {
+      "name": "Markit module + init + first math",
+      "ms": 27.394999999552965
+    },
+    {
+      "name": "KaTeX module + first math",
+      "ms": 12.890000000596046
+    }
+  ],
+  "math": [
+    {
+      "name": "Markit Wasm SVG + PNG, uncached",
+      "bytes": 5,
+      "median_ms": 0.22242857142691574,
+      "p95_batch_ms": 0.22892156862684226,
+      "samples_ms": [
+        0.21917187499930152,
+        0.21381097560941537,
+        0.22242857142691574,
+        0.21617283950628782,
+        0.22014150943361083,
+        0.22669902912862477,
+        0.22740259740271834,
+        0.22632258064564198,
+        0.22892156862684226
+      ],
+      "iterations": 2838,
+      "category": "math",
+      "formula": "simple",
+      "cache": "miss"
+    },
+    {
+      "name": "KaTeX HTML + MathML, uncached",
+      "bytes": 5,
+      "median_ms": 0.013660487805016157,
+      "p95_batch_ms": 0.01410390656464705,
+      "samples_ms": [
+        0.01410390656464705,
+        0.013720109760878087,
+        0.014005602240896359,
+        0.013658536585365854,
+        0.01354585913310531,
+        0.013366431162879512,
+        0.013660487805016157,
+        0.013885362951165506,
+        0.013474494706448507
+      ],
+      "iterations": 45958,
+      "category": "math",
+      "formula": "simple",
+      "cache": "none"
+    },
+    {
+      "name": "Markit Wasm math, repeated formula",
+      "bytes": 5,
+      "median_ms": 0.0019194384271573118,
+      "p95_batch_ms": 0.0019514914970727628,
+      "samples_ms": [
+        0.001918070968625839,
+        0.0019459579673079062,
+        0.0019514914970727628,
+        0.0019054878048780487,
+        0.0019504040122596824,
+        0.001914189614154065,
+        0.0019194384271573118,
+        0.001920755131160136,
+        0.0019076688286913392
+      ],
+      "iterations": 327139,
+      "category": "math",
+      "formula": "simple",
+      "cache": "hit"
+    },
+    {
+      "name": "Markit Wasm SVG + PNG, uncached",
+      "bytes": 43,
+      "median_ms": 0.761358695651364,
+      "p95_batch_ms": 0.7807777777831587,
+      "samples_ms": [
+        0.7340104166748157,
+        0.7519148936138508,
+        0.7636413043466114,
+        0.7552688172067045,
+        0.7515425531867337,
+        0.761358695651364,
+        0.7707142857220638,
+        0.764673913039429,
+        0.7807777777831587
+      ],
+      "iterations": 834,
+      "category": "math",
+      "formula": "sum_fraction",
+      "cache": "miss"
+    },
+    {
+      "name": "KaTeX HTML + MathML, uncached",
+      "bytes": 43,
+      "median_ms": 0.04164187983343248,
+      "p95_batch_ms": 0.043538557213791344,
+      "samples_ms": [
+        0.04303933620125458,
+        0.042782529016584615,
+        0.04164187983343248,
+        0.04214930764586182,
+        0.04119411764721222,
+        0.043538557213791344,
+        0.04099238875913117,
+        0.04078334303986093,
+        0.0402876869968264
+      ],
+      "iterations": 15077,
+      "category": "math",
+      "formula": "sum_fraction",
+      "cache": "none"
+    },
+    {
+      "name": "Markit Wasm math, repeated formula",
+      "bytes": 43,
+      "median_ms": 0.0038992869875222815,
+      "p95_batch_ms": 0.003933910306845004,
+      "samples_ms": [
+        0.003889598844309826,
+        0.003933910306845004,
+        0.0039005906608715036,
+        0.0038984183559812877,
+        0.003896031613513664,
+        0.003920031360250882,
+        0.0038992869875222815,
+        0.0038755398073303067,
+        0.003917618088202373
+      ],
+      "iterations": 161400,
+      "category": "math",
+      "formula": "sum_fraction",
+      "cache": "hit"
+    }
+  ],
+  "note": "Different output formats. Markit includes Markdown parsing, vector output, and native PNG generation; KaTeX emits HTML+MathML. No equivalence or speedup claim.",
+  "browser_version": "156.0.8078.4"
+}

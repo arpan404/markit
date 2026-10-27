@@ -1,0 +1,84 @@
+# Rust dependency licenses
+
+Versions are pinned in Cargo.lock. License files below are unmodified copies from the registry packages.
+
+- adler2-2.0.1: 0BSD OR MIT OR Apache-2.0. https://github.com/oyvindln/adler2
+- aho-corasick-1.1.5: Unlicense OR MIT. https://github.com/BurntSushi/aho-corasick
+- arrayref-0.3.9: BSD-2-Clause. https://github.com/droundy/arrayref
+- arrayvec-0.7.8: MIT OR Apache-2.0. https://github.com/bluss/arrayvec
+- base64-0.22.1: MIT OR Apache-2.0. https://github.com/marshallpierce/rust-base64
+- bincode-1.3.3: MIT. https://github.com/servo/bincode
+- bit-set-0.8.0: Apache-2.0 OR MIT. https://github.com/contain-rs/bit-set
+- bit-vec-0.8.0: Apache-2.0 OR MIT. https://github.com/contain-rs/bit-vec
+- bitflags-1.3.2: MIT/Apache-2.0. https://github.com/bitflags/bitflags
+- bitflags-2.13.2: MIT OR Apache-2.0. https://github.com/bitflags/bitflags
+- bumpalo-3.20.3: MIT OR Apache-2.0. https://github.com/fitzgen/bumpalo
+- bytemuck-1.25.2: Zlib OR Apache-2.0 OR MIT. https://github.com/Lokathor/bytemuck
+- bytes-1.12.1: MIT. https://github.com/tokio-rs/bytes
+- cesu8-1.1.0: Apache-2.0/MIT. https://github.com/emk/cesu8-rs
+- cfg-if-1.0.5: MIT OR Apache-2.0. https://github.com/rust-lang/cfg-if
+- combine-4.6.9: MIT. https://github.com/Marwes/combine
+- crc32fast-1.5.3: MIT OR Apache-2.0. https://github.com/srijs/rust-crc32fast
+- fancy-regex-0.16.2: MIT. https://github.com/fancy-regex/fancy-regex
+- fdeflate-0.3.7: MIT OR Apache-2.0. https://github.com/image-rs/fdeflate
+- flate2-1.1.10: MIT OR Apache-2.0. https://github.com/rust-lang/flate2-rs
+- fnv-1.0.7: Apache-2.0 / MIT. https://github.com/servo/rust-fnv
+- itoa-1.0.18: MIT OR Apache-2.0. https://github.com/dtolnay/itoa
+- jni-0.21.1: MIT/Apache-2.0. https://github.com/jni-rs/jni-rs
+- jni-sys-0.3.1: MIT OR Apache-2.0. https://github.com/jni-rs/jni-sys
+- jni-sys-0.4.1: MIT OR Apache-2.0. https://github.com/jni-rs/jni-sys
+- jni-sys-macros-0.4.1: MIT OR Apache-2.0. https://github.com/jni-rs/jni-sys
+- latex-rust-2.1.1: MIT OR Apache-2.0. https://github.com/jscarr64/LaTeX-Rust
+- linkify-0.10.0: MIT OR Apache-2.0. https://github.com/robinst/linkify
+- log-0.4.34: MIT OR Apache-2.0. https://github.com/rust-lang/log
+- memchr-2.8.3: Unlicense OR MIT. https://github.com/BurntSushi/memchr
+- miniz_oxide-0.8.9: MIT OR Zlib OR Apache-2.0. https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide
+- miniz_oxide-0.9.1: MIT OR Zlib OR Apache-2.0. https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide
+- once_cell-1.21.4: MIT OR Apache-2.0. https://github.com/matklad/once_cell
+- png-0.17.16: MIT OR Apache-2.0. https://github.com/image-rs/image-png
+- proc-macro2-1.0.107: MIT OR Apache-2.0. https://github.com/dtolnay/proc-macro2
+- pulldown-cmark-0.13.5: MIT. https://github.com/raphlinus/pulldown-cmark
+- pulldown-cmark-escape-0.11.0: MIT. https://github.com/raphlinus/pulldown-cmark
+- quote-1.0.47: MIT OR Apache-2.0. https://github.com/dtolnay/quote
+- regex-automata-0.4.18: MIT OR Apache-2.0. https://github.com/rust-lang/regex
+- regex-syntax-0.8.11: MIT OR Apache-2.0. https://github.com/rust-lang/regex
+- rustversion-1.0.23: MIT OR Apache-2.0. https://github.com/dtolnay/rustversion
+- same-file-1.0.6: Unlicense/MIT. https://github.com/BurntSushi/same-file
+- serde-1.0.229: MIT OR Apache-2.0. https://github.com/serde-rs/serde
+- serde_core-1.0.229: MIT OR Apache-2.0. https://github.com/serde-rs/serde
+- serde_derive-1.0.229: MIT OR Apache-2.0. https://github.com/serde-rs/serde
+- serde_json-1.0.154: MIT OR Apache-2.0. https://github.com/serde-rs/json
+- simd-adler32-0.3.10: MIT. https://github.com/mcountryman/simd-adler32
+- strict-num-0.1.1: MIT. https://github.com/RazrFalcon/strict-num
+- syn-2.0.119: MIT OR Apache-2.0. https://github.com/dtolnay/syn
+- syn-3.0.9: MIT OR Apache-2.0. https://github.com/dtolnay/syn
+- syntect-5.3.0: MIT. https://github.com/trishume/syntect
+- thiserror-1.0.69: MIT OR Apache-2.0. https://github.com/dtolnay/thiserror
+- thiserror-2.0.21: MIT OR Apache-2.0. https://github.com/dtolnay/thiserror
+- thiserror-impl-1.0.69: MIT OR Apache-2.0. https://github.com/dtolnay/thiserror
+- thiserror-impl-2.0.21: MIT OR Apache-2.0. https://github.com/dtolnay/thiserror
+- tiny-skia-0.11.4: BSD-3-Clause. https://github.com/RazrFalcon/tiny-skia
+- tiny-skia-path-0.11.4: BSD-3-Clause. https://github.com/RazrFalcon/tiny-skia/tree/master/path
+- ttf-parser-0.25.1: MIT OR Apache-2.0. https://github.com/harfbuzz/ttf-parser
+- two-face-0.5.2+bat-0.26.1: MIT OR Apache-2.0. https://codeberg.org/CosmicHarper/two-face
+- unicase-2.10.0: MIT OR Apache-2.0. https://github.com/seanmonstar/unicase
+- unicode-ident-1.0.27: (MIT OR Apache-2.0) AND Unicode-3.0. https://github.com/dtolnay/unicode-ident
+- walkdir-2.5.0: Unlicense/MIT. https://github.com/BurntSushi/walkdir
+- wasm-bindgen-0.2.129: MIT OR Apache-2.0. https://github.com/wasm-bindgen/wasm-bindgen
+- wasm-bindgen-macro-0.2.129: MIT OR Apache-2.0. https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/macro
+- wasm-bindgen-macro-support-0.2.129: MIT OR Apache-2.0. https://github.com/wasm-bindgen/wasm-bindgen/tree/main/crates/macro-support
+- wasm-bindgen-shared-0.2.129: MIT OR Apache-2.0. https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/shared
+- winapi-util-0.1.11: Unlicense OR MIT. https://github.com/BurntSushi/winapi-util
+- windows-link-0.2.1: MIT OR Apache-2.0. https://github.com/microsoft/windows-rs
+- windows-sys-0.45.0: MIT OR Apache-2.0. https://github.com/microsoft/windows-rs
+- windows-sys-0.61.2: MIT OR Apache-2.0. https://github.com/microsoft/windows-rs
+- windows-targets-0.42.2: MIT OR Apache-2.0. https://github.com/microsoft/windows-rs
+- windows_aarch64_gnullvm-0.42.2: MIT OR Apache-2.0. https://github.com/microsoft/windows-rs
+- windows_aarch64_msvc-0.42.2: MIT OR Apache-2.0. https://github.com/microsoft/windows-rs
+- windows_i686_gnu-0.42.2: MIT OR Apache-2.0. https://github.com/microsoft/windows-rs
+- windows_i686_msvc-0.42.2: MIT OR Apache-2.0. https://github.com/microsoft/windows-rs
+- windows_x86_64_gnu-0.42.2: MIT OR Apache-2.0. https://github.com/microsoft/windows-rs
+- windows_x86_64_gnullvm-0.42.2: MIT OR Apache-2.0. https://github.com/microsoft/windows-rs
+- windows_x86_64_msvc-0.42.2: MIT OR Apache-2.0. https://github.com/microsoft/windows-rs
+- zlib-rs-0.6.8: Zlib. https://github.com/trifectatechfoundation/zlib-rs
+- zmij-1.0.23: MIT. https://github.com/dtolnay/zmij

@@ -1,0 +1,18 @@
+[package]
+name = "markit-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "WebAssembly Markdown rendering bindings"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+markit.workspace = true
+wasm-bindgen = "0.2"
+serde_json.workspace = true
+
+[features]
+default = []
+grammars = ["markit/grammars"]

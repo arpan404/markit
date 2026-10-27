@@ -1,0 +1,19 @@
+export interface CodeToken { text: string; light: string; dark: string }
+export interface HighlightedCode { language: string; plain: boolean; tokens: CodeToken[] }
+export interface MarkitReference { kind: 'file' | 'thread' | 'pull_request'; target: string }
+export interface MarkitOptions {
+  workerURL?: URL | string;
+  /** WebGPU draws eligible large ASCII source views. Auto currently uses DOM until benchmarked. */
+  codeRendering?: 'auto' | 'dom' | 'webgpu';
+  onLink?: (url: string) => void;
+  onReference?: (reference: MarkitReference) => void;
+  resolveImage?: (url: string, alt: string, signal: AbortSignal) => Blob | Uint8Array | null | Promise<Blob | Uint8Array | null>;
+  onError?: (error: Error) => void;
+}
+export interface RenderPatch { replace_from: number; blocks: string[]; finalized: boolean; source_bytes: number; parsed_bytes: number; superseded: boolean }
+export class MarkitRenderer {
+  constructor(element: HTMLElement, options?: MarkitOptions);
+  render(source: string, options?: { finalized?: boolean }): Promise<RenderPatch | { superseded: true }>;
+  highlight(source: string, language: string, options?: { grammar?: boolean }): Promise<HighlightedCode>;
+  destroy(): void;
+}

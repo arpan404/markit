@@ -1,0 +1,57 @@
+{
+  "timestamp": "2026-10-27T21:04:07.887Z",
+  "browser_version": "156.0.8078.4",
+  "adapter": {
+    "vendor": "apple",
+    "architecture": "metal-3",
+    "fallback": false
+  },
+  "density": "dense",
+  "rows": [
+    {
+      "mode": "dom",
+      "worker_and_dom_ms": 18.200000001117587,
+      "backend_ready_ms": 32.80000000074506,
+      "median_main_thread_task_ms_per_scroll": 3.6038666666666663,
+      "samples_ms": [
+        3.0204,
+        3.6740999999999997,
+        3.396400000000001,
+        2.8941333333333317,
+        3.6954333333333347,
+        3.6038666666666663,
+        3.425699999999998,
+        3.8812999999999986,
+        3.8416000000000006
+      ],
+      "frames": 270,
+      "idle_gpu_submissions": 0,
+      "visible_dom_nodes": 654,
+      "backend": "dom",
+      "source_chars": 13524
+    },
+    {
+      "mode": "webgpu",
+      "worker_and_dom_ms": 40.29999999888241,
+      "backend_ready_ms": 82,
+      "median_main_thread_task_ms_per_scroll": 3.3616666666666704,
+      "samples_ms": [
+        2.3729333333333344,
+        3.395599999999995,
+        3.406233333333334,
+        3.410500000000005,
+        3.0758333333333296,
+        2.7579666666666705,
+        3.293266666666665,
+        3.6791666666666627,
+        3.3616666666666704
+      ],
+      "frames": 270,
+      "idle_gpu_submissions": 0,
+      "visible_dom_nodes": 34,
+      "backend": "webgpu",
+      "source_chars": 13524
+    }
+  ],
+  "note": "Standard WebGPU, browser-selected adapter, no graphics backend or unsafe WebGPU flags. TaskDuration measures main-thread CPU tasks during two-rAF scroll steps, not GPU execution time, energy, or battery life. worker_and_dom_ms excludes asynchronous GPU initialization. backend_ready_ms includes readiness and two rAF callbacks, not a GPU timestamp or proven presentation time."
+}
