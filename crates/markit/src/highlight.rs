@@ -72,9 +72,37 @@ impl Tone {
             Self::Tag => ("#116329", "#7ee787"),
         }
     }
+    /// Same palette as [`Tone::colors`], precomputed so the packed Wasm path
+    /// never re-parses hex text per run.
+    fn rgb(self) -> (u32, u32) {
+        match self {
+            Self::Plain | Self::Punctuation => (0x24292f, 0xc9d1d9),
+            Self::Comment => (0x6e7781, 0x8b949e),
+            Self::String => (0x0a3069, 0xa5d6ff),
+            Self::Number | Self::Property => (0x0550ae, 0x79c0ff),
+            Self::Keyword => (0xcf222e, 0xff7b72),
+            Self::Function => (0x8250df, 0xd2a8ff),
+            Self::Type => (0x953800, 0xffa657),
+            Self::Tag => (0x116329, 0x7ee787),
+        }
+    }
 }
 fn word_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$')
+}
+/// Length of the UTF-8 sequence starting at a known character boundary.
+/// The scanner only advances by whole characters, so `bytes[at]` is always a
+/// leading byte and this matches `str::chars().next().len_utf8()`.
+fn step_len(byte: u8) -> usize {
+    if byte < 0x80 {
+        1
+    } else if (byte >> 5) == 0b110 {
+        2
+    } else if (byte >> 4) == 0b1110 {
+        3
+    } else {
+        4
+    }
 }
 fn keyword(word: &str, language: &str) -> bool {
     // SQL keywords are case insensitive; other languages preserve identifier case.
@@ -488,32 +516,38 @@ fn scan(code: &str, language: &str) -> LexedCode {
         let byte = bytes[at];
         let mut tone = Tone::Plain;
         if (hash_comment && byte == b'#')
-            || (slash_comment && code[at..].starts_with("//"))
-            || (language == "sql" && code[at..].starts_with("--"))
+            || (slash_comment && byte == b'/' && bytes.get(at + 1) == Some(&b'/'))
+            || (language == "sql" && byte == b'-' && bytes.get(at + 1) == Some(&b'-'))
         {
-            at += code[at..].find('\n').unwrap_or(bytes.len() - at);
+            at += bytes[at..]
+                .iter()
+                .position(|&b| b == b'\n')
+                .unwrap_or(bytes.len() - at);
             tone = Tone::Comment;
-        } else if slash_comment && code[at..].starts_with("/*") {
+        } else if slash_comment && byte == b'/' && bytes.get(at + 1) == Some(&b'*') {
             at += 2;
             let mut depth = 1;
             while at < bytes.len() && depth > 0 {
-                if language == "rust" && code[at..].starts_with("/*") {
+                if language == "rust" && bytes[at] == b'/' && bytes.get(at + 1) == Some(&b'*') {
                     depth += 1;
                     at += 2;
-                } else if code[at..].starts_with("*/") {
+                } else if bytes[at] == b'*' && bytes.get(at + 1) == Some(&b'/') {
                     depth -= 1;
                     at += 2;
                 } else {
-                    at += code[at..].chars().next().unwrap().len_utf8();
+                    at += step_len(bytes[at]);
                 }
             }
             tone = Tone::Comment;
-        } else if markup && code[at..].starts_with("<!--") {
+        } else if markup && byte == b'<' && bytes.get(at + 1..at + 4) == Some(b"!--".as_slice()) {
             at = code[at + 4..]
                 .find("-->")
                 .map_or(bytes.len(), |end| at + 4 + end + 3);
             tone = Tone::Comment;
-        } else if language == "rust" && byte == b'r' && code[at + 1..].starts_with(['#', '"']) {
+        } else if language == "rust"
+            && byte == b'r'
+            && matches!(bytes.get(at + 1), Some(b'#') | Some(b'"'))
+        {
             let hashes = bytes[at + 1..].iter().take_while(|&&b| b == b'#').count();
             let quote = at + 1 + hashes;
             if bytes.get(quote) == Some(&b'"') {
@@ -547,7 +581,7 @@ fn scan(code: &str, language: &str) -> LexedCode {
                     if bytes[at] == b'\\' {
                         at += 1;
                         if at < bytes.len() {
-                            at += code[at..].chars().next().unwrap().len_utf8();
+                            at += step_len(bytes[at]);
                         }
                     } else if bytes[at] == byte
                         && (!triple
@@ -558,7 +592,7 @@ fn scan(code: &str, language: &str) -> LexedCode {
                         at += marker;
                         break;
                     } else {
-                        at += code[at..].chars().next().unwrap().len_utf8();
+                        at += step_len(bytes[at]);
                     }
                 }
                 tone = Tone::String;
@@ -603,7 +637,7 @@ fn scan(code: &str, language: &str) -> LexedCode {
                     in_tag = false;
                 }
             }
-            at += code[at..].chars().next().unwrap().len_utf8();
+            at += step_len(byte);
             if byte.is_ascii_punctuation() {
                 tone = Tone::Punctuation;
             }
@@ -783,13 +817,35 @@ pub fn highlight_packed(code: &str, language: &str) -> Vec<u32> {
     let mut offset = 0;
     for &(end, tone) in &lexed.runs {
         offset += code[start..end].encode_utf16().count() as u32;
-        let (light, dark) = tone.colors();
-        words.extend([
-            offset,
-            u32::from_str_radix(&light[1..], 16).unwrap(),
-            u32::from_str_radix(&dark[1..], 16).unwrap(),
-        ]);
+        let (light, dark) = tone.rgb();
+        words.extend([offset, light, dark]);
         start = end;
     }
     words
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn packed_rgb_matches_hex_palette() {
+        for tone in [
+            Tone::Plain,
+            Tone::Comment,
+            Tone::String,
+            Tone::Number,
+            Tone::Keyword,
+            Tone::Function,
+            Tone::Type,
+            Tone::Property,
+            Tone::Tag,
+            Tone::Punctuation,
+        ] {
+            let (light, dark) = tone.colors();
+            let (light_rgb, dark_rgb) = tone.rgb();
+            assert_eq!(light_rgb, u32::from_str_radix(&light[1..], 16).unwrap());
+            assert_eq!(dark_rgb, u32::from_str_radix(&dark[1..], 16).unwrap());
+        }
+    }
 }
