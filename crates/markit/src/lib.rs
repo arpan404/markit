@@ -12,7 +12,9 @@ mod stream;
 
 pub use document::{parse, Block, Document, Span, Style};
 pub use fence::{fence_info, FenceInfo};
-pub use highlight::{highlight, highlight_packed, language_alias, CodeToken, HighlightedCode};
+pub use highlight::{
+    highlight, highlight_json, highlight_packed, language_alias, CodeToken, HighlightedCode,
+};
 
 /// Optional full Sublime grammars. Enable the `grammars` Cargo feature.
 pub fn highlight_grammar(source: &str, language: &str) -> Option<std::sync::Arc<HighlightedCode>> {

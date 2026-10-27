@@ -801,12 +801,74 @@ pub fn highlight_packed(code: &str, language: &str) -> Vec<u32> {
     let mut start = 0;
     let mut offset = 0;
     for &(end, tone) in &lexed.runs {
-        offset += code[start..end].encode_utf16().count() as u32;
+        offset += utf16_len(&code[start..end]) as u32;
         let (light, dark) = tone.rgb();
         words.extend([offset, light, dark]);
         start = end;
     }
     words
+}
+
+/// Serialize `{"language","plain","tokens":[...]}` directly from compact
+/// runs, without materializing owned [`HighlightedCode`] tokens. The Wasm
+/// `highlightCode` bridge needs JSON text, not token structs; building them
+/// first costs three owned `String`s per token (duplicating the whole source
+/// inside the shared cache entry) plus a second pass to re-serialize. This
+/// emits byte-identical JSON: field order matches the derived `Serialize`
+/// impls, and `&str`/`&'static str` serialize exactly like the owned
+/// `String`s they replace.
+pub fn highlight_json(code: &str, language: &str) -> String {
+    serde_json::to_string(&RunsJson {
+        code,
+        lexed: &lex(code, language),
+    })
+    .expect("highlight serialization is infallible")
+}
+
+struct RunsJson<'a> {
+    code: &'a str,
+    lexed: &'a LexedCode,
+}
+
+impl serde::Serialize for RunsJson<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut out = serializer.serialize_struct("HighlightedCode", 3)?;
+        out.serialize_field("language", &self.lexed.language)?;
+        out.serialize_field("plain", &self.lexed.plain)?;
+        out.serialize_field("tokens", &RunsTokens { json: self })?;
+        out.end()
+    }
+}
+
+struct RunsTokens<'a> {
+    json: &'a RunsJson<'a>,
+}
+
+impl serde::Serialize for RunsTokens<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeSeq;
+        let mut seq = serializer.serialize_seq(Some(self.json.lexed.runs.len()))?;
+        let mut start = 0;
+        for &(end, tone) in &self.json.lexed.runs {
+            let (light, dark) = tone.colors();
+            // Same shape and field order as `CodeToken`.
+            seq.serialize_element(&BorrowedToken {
+                text: &self.json.code[start..end],
+                light,
+                dark,
+            })?;
+            start = end;
+        }
+        seq.end()
+    }
+}
+
+#[derive(serde::Serialize)]
+struct BorrowedToken<'a> {
+    text: &'a str,
+    light: &'static str,
+    dark: &'static str,
 }
 
 #[cfg(test)]

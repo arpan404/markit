@@ -12,7 +12,7 @@ pub fn render_document(source: &str) -> String {
 
 #[wasm_bindgen(js_name = highlightCode)]
 pub fn highlight_code(source: &str, language: &str) -> String {
-    serde_json::to_string(markit::highlight(source, language).as_ref()).expect("serializable code")
+    markit::highlight_json(source, language)
 }
 
 /// Typed UTF-16 ranges avoid JSON and repeated token text across the web bridge.
