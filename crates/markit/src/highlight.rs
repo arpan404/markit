@@ -105,365 +105,339 @@ fn step_len(byte: u8) -> usize {
     }
 }
 fn keyword(word: &str, language: &str) -> bool {
-    // SQL keywords are case insensitive; other languages preserve identifier case.
-    let sql_word;
-    let word = if language == "sql" {
-        sql_word = word.to_ascii_lowercase();
-        sql_word.as_str()
-    } else {
-        word
-    };
+    // Length dispatch first: most identifiers miss on length alone without
+    // comparing string bytes. SQL stays case insensitive without allocating
+    // a lowercased copy per identifier (`eq_ignore_ascii_case` folds ASCII,
+    // which matches `to_ascii_lowercase` on scanner identifiers exactly).
     match language {
-        "python" => matches!(
-            word,
-            "and"
-                | "as"
-                | "assert"
-                | "async"
-                | "await"
-                | "break"
-                | "class"
-                | "continue"
-                | "def"
-                | "del"
-                | "elif"
-                | "else"
-                | "except"
-                | "False"
-                | "finally"
-                | "for"
-                | "from"
-                | "global"
-                | "if"
-                | "import"
-                | "in"
-                | "is"
-                | "lambda"
-                | "None"
-                | "nonlocal"
-                | "not"
-                | "or"
-                | "pass"
-                | "raise"
-                | "return"
-                | "True"
-                | "try"
-                | "while"
-                | "with"
-                | "yield"
-                | "self"
-        ),
-        "bash" => matches!(
-            word,
-            "if" | "then"
-                | "else"
-                | "elif"
-                | "fi"
-                | "for"
-                | "in"
-                | "do"
-                | "done"
-                | "case"
-                | "esac"
-                | "while"
-                | "until"
-                | "function"
-                | "export"
-                | "local"
-                | "return"
-                | "echo"
-                | "cd"
-                | "source"
-                | "readonly"
-                | "unset"
-                | "declare"
-                | "select"
-                | "break"
-                | "continue"
-        ),
-        "sql" => matches!(
-            word,
-            "select"
-                | "from"
-                | "where"
-                | "join"
-                | "left"
-                | "right"
-                | "inner"
-                | "outer"
-                | "on"
-                | "as"
-                | "insert"
-                | "into"
-                | "update"
-                | "delete"
-                | "create"
-                | "table"
-                | "index"
-                | "drop"
-                | "alter"
-                | "values"
-                | "set"
-                | "null"
-                | "not"
-                | "and"
-                | "or"
-                | "order"
-                | "by"
-                | "group"
-                | "having"
-                | "limit"
-                | "offset"
-                | "union"
-                | "all"
-                | "distinct"
-                | "case"
-                | "when"
-                | "then"
-                | "else"
-                | "end"
-                | "primary"
-                | "key"
-                | "references"
-                | "default"
-                | "true"
-                | "false"
-        ),
-        "json" | "json5" => matches!(word, "true" | "false" | "null" | "Infinity" | "NaN"),
-        "yaml" => matches!(
-            word,
-            "true" | "false" | "null" | "yes" | "no" | "on" | "off"
-        ),
-        "rust" => matches!(
-            word,
-            "as" | "async"
-                | "await"
-                | "break"
-                | "const"
-                | "continue"
-                | "crate"
-                | "dyn"
-                | "else"
-                | "enum"
-                | "extern"
-                | "false"
-                | "fn"
-                | "for"
-                | "if"
-                | "impl"
-                | "in"
-                | "let"
-                | "loop"
-                | "match"
-                | "mod"
-                | "move"
-                | "mut"
-                | "pub"
-                | "ref"
-                | "return"
-                | "self"
-                | "Self"
-                | "static"
-                | "struct"
-                | "super"
-                | "trait"
-                | "true"
-                | "type"
-                | "unsafe"
-                | "use"
-                | "where"
-                | "while"
-                | "abstract"
-                | "become"
-                | "box"
-                | "do"
-                | "final"
-                | "macro"
-                | "override"
-                | "priv"
-                | "typeof"
-                | "unsized"
-                | "virtual"
-                | "yield"
-                | "try"
-                | "union"
-        ),
-        "swift" => matches!(
-            word,
-            "actor"
-                | "any"
-                | "as"
-                | "associatedtype"
-                | "async"
-                | "await"
-                | "borrowing"
-                | "break"
-                | "case"
-                | "catch"
-                | "class"
-                | "consuming"
-                | "continue"
-                | "convenience"
-                | "default"
-                | "defer"
-                | "deinit"
-                | "didSet"
-                | "do"
-                | "dynamic"
-                | "else"
-                | "enum"
-                | "extension"
-                | "fallthrough"
-                | "false"
-                | "fileprivate"
-                | "final"
-                | "for"
-                | "func"
-                | "get"
-                | "guard"
-                | "if"
-                | "import"
-                | "in"
-                | "indirect"
-                | "init"
-                | "inout"
-                | "internal"
-                | "is"
-                | "isolated"
-                | "lazy"
-                | "let"
-                | "mutating"
-                | "nil"
-                | "nonisolated"
-                | "nonmutating"
-                | "open"
-                | "operator"
-                | "optional"
-                | "override"
-                | "package"
-                | "private"
-                | "protocol"
-                | "public"
-                | "repeat"
-                | "required"
-                | "rethrows"
-                | "return"
-                | "self"
-                | "Self"
-                | "set"
-                | "some"
-                | "static"
-                | "struct"
-                | "subscript"
-                | "super"
-                | "switch"
-                | "throw"
-                | "throws"
-                | "true"
-                | "try"
-                | "typealias"
-                | "unowned"
-                | "var"
-                | "weak"
-                | "where"
-                | "while"
-                | "willSet"
-        ),
-        _ => matches!(
-            word,
-            "abstract"
-                | "as"
-                | "async"
-                | "await"
-                | "boolean"
-                | "break"
-                | "case"
-                | "catch"
-                | "char"
-                | "class"
-                | "const"
-                | "continue"
-                | "debugger"
-                | "default"
-                | "defer"
-                | "delete"
-                | "do"
-                | "double"
-                | "else"
-                | "enum"
-                | "export"
-                | "extends"
-                | "false"
-                | "final"
-                | "finally"
-                | "float"
-                | "for"
-                | "from"
-                | "func"
-                | "function"
-                | "go"
-                | "if"
-                | "implements"
-                | "import"
-                | "in"
-                | "instanceof"
-                | "int"
-                | "interface"
-                | "internal"
-                | "is"
-                | "let"
-                | "long"
-                | "map"
-                | "match"
-                | "namespace"
-                | "native"
-                | "new"
-                | "null"
-                | "object"
-                | "of"
-                | "out"
-                | "override"
-                | "package"
-                | "private"
-                | "protected"
-                | "public"
-                | "readonly"
-                | "record"
-                | "ref"
-                | "return"
-                | "satisfies"
-                | "sealed"
-                | "self"
-                | "short"
-                | "static"
-                | "string"
-                | "struct"
-                | "super"
-                | "switch"
-                | "synchronized"
-                | "this"
-                | "throw"
-                | "throws"
-                | "trait"
-                | "true"
-                | "try"
-                | "type"
-                | "typeof"
-                | "undefined"
-                | "unsigned"
-                | "use"
-                | "using"
-                | "val"
-                | "var"
-                | "virtual"
-                | "void"
-                | "volatile"
-                | "when"
-                | "where"
-                | "while"
-                | "with"
-                | "yield"
-        ),
+        "python" => match word.len() {
+            2 => matches!(word, "as" | "if" | "in" | "is" | "or"),
+            3 => matches!(word, "and" | "def" | "del" | "for" | "not" | "try"),
+            4 => matches!(
+                word,
+                "None" | "True" | "elif" | "else" | "from" | "pass" | "self" | "with"
+            ),
+            5 => matches!(
+                word,
+                "False" | "async" | "await" | "break" | "class" | "raise" | "while" | "yield"
+            ),
+            6 => matches!(
+                word,
+                "assert" | "except" | "global" | "import" | "lambda" | "return"
+            ),
+            7 => matches!(word, "finally"),
+            8 => matches!(word, "continue" | "nonlocal"),
+            _ => false,
+        },
+        "bash" => match word.len() {
+            2 => matches!(word, "cd" | "do" | "fi" | "if" | "in"),
+            3 => matches!(word, "for"),
+            4 => matches!(
+                word,
+                "case" | "done" | "echo" | "elif" | "else" | "esac" | "then"
+            ),
+            5 => matches!(word, "break" | "local" | "unset" | "until" | "while"),
+            6 => matches!(word, "export" | "return" | "select" | "source"),
+            7 => matches!(word, "declare"),
+            8 => matches!(word, "continue" | "function" | "readonly"),
+            _ => false,
+        },
+        "sql" => match word.len() {
+            2 => {
+                word.eq_ignore_ascii_case("as")
+                    || word.eq_ignore_ascii_case("by")
+                    || word.eq_ignore_ascii_case("on")
+                    || word.eq_ignore_ascii_case("or")
+            }
+            3 => {
+                word.eq_ignore_ascii_case("all")
+                    || word.eq_ignore_ascii_case("and")
+                    || word.eq_ignore_ascii_case("end")
+                    || word.eq_ignore_ascii_case("key")
+                    || word.eq_ignore_ascii_case("not")
+                    || word.eq_ignore_ascii_case("set")
+            }
+            4 => {
+                word.eq_ignore_ascii_case("case")
+                    || word.eq_ignore_ascii_case("drop")
+                    || word.eq_ignore_ascii_case("else")
+                    || word.eq_ignore_ascii_case("from")
+                    || word.eq_ignore_ascii_case("into")
+                    || word.eq_ignore_ascii_case("join")
+                    || word.eq_ignore_ascii_case("left")
+                    || word.eq_ignore_ascii_case("null")
+                    || word.eq_ignore_ascii_case("then")
+                    || word.eq_ignore_ascii_case("true")
+                    || word.eq_ignore_ascii_case("when")
+            }
+            5 => {
+                word.eq_ignore_ascii_case("alter")
+                    || word.eq_ignore_ascii_case("false")
+                    || word.eq_ignore_ascii_case("group")
+                    || word.eq_ignore_ascii_case("index")
+                    || word.eq_ignore_ascii_case("inner")
+                    || word.eq_ignore_ascii_case("limit")
+                    || word.eq_ignore_ascii_case("order")
+                    || word.eq_ignore_ascii_case("outer")
+                    || word.eq_ignore_ascii_case("right")
+                    || word.eq_ignore_ascii_case("table")
+                    || word.eq_ignore_ascii_case("union")
+                    || word.eq_ignore_ascii_case("where")
+            }
+            6 => {
+                word.eq_ignore_ascii_case("create")
+                    || word.eq_ignore_ascii_case("delete")
+                    || word.eq_ignore_ascii_case("having")
+                    || word.eq_ignore_ascii_case("insert")
+                    || word.eq_ignore_ascii_case("offset")
+                    || word.eq_ignore_ascii_case("select")
+                    || word.eq_ignore_ascii_case("update")
+                    || word.eq_ignore_ascii_case("values")
+            }
+            7 => word.eq_ignore_ascii_case("default") || word.eq_ignore_ascii_case("primary"),
+            8 => word.eq_ignore_ascii_case("distinct"),
+            10 => word.eq_ignore_ascii_case("references"),
+            _ => false,
+        },
+        "json" | "json5" => match word.len() {
+            3 => matches!(word, "NaN"),
+            4 => matches!(word, "null" | "true"),
+            5 => matches!(word, "false"),
+            8 => matches!(word, "Infinity"),
+            _ => false,
+        },
+        "yaml" => match word.len() {
+            2 => matches!(word, "no" | "on"),
+            3 => matches!(word, "off" | "yes"),
+            4 => matches!(word, "null" | "true"),
+            5 => matches!(word, "false"),
+            _ => false,
+        },
+        "rust" => match word.len() {
+            2 => matches!(word, "as" | "do" | "fn" | "if" | "in"),
+            3 => matches!(
+                word,
+                "box" | "dyn" | "for" | "let" | "mod" | "mut" | "pub" | "ref" | "try" | "use"
+            ),
+            4 => matches!(
+                word,
+                "Self"
+                    | "else"
+                    | "enum"
+                    | "impl"
+                    | "loop"
+                    | "move"
+                    | "priv"
+                    | "self"
+                    | "true"
+                    | "type"
+            ),
+            5 => matches!(
+                word,
+                "async"
+                    | "await"
+                    | "break"
+                    | "const"
+                    | "crate"
+                    | "false"
+                    | "final"
+                    | "macro"
+                    | "match"
+                    | "super"
+                    | "trait"
+                    | "union"
+                    | "where"
+                    | "while"
+                    | "yield"
+            ),
+            6 => matches!(
+                word,
+                "become" | "extern" | "return" | "static" | "struct" | "typeof" | "unsafe"
+            ),
+            7 => matches!(word, "unsized" | "virtual"),
+            8 => matches!(word, "abstract" | "continue" | "override"),
+            _ => false,
+        },
+        "swift" => match word.len() {
+            2 => matches!(word, "as" | "do" | "if" | "in" | "is"),
+            3 => matches!(
+                word,
+                "any" | "for" | "get" | "let" | "nil" | "set" | "try" | "var"
+            ),
+            4 => matches!(
+                word,
+                "Self"
+                    | "case"
+                    | "else"
+                    | "enum"
+                    | "func"
+                    | "init"
+                    | "lazy"
+                    | "open"
+                    | "self"
+                    | "some"
+                    | "true"
+                    | "weak"
+            ),
+            5 => matches!(
+                word,
+                "actor"
+                    | "async"
+                    | "await"
+                    | "break"
+                    | "catch"
+                    | "class"
+                    | "defer"
+                    | "false"
+                    | "final"
+                    | "guard"
+                    | "inout"
+                    | "super"
+                    | "throw"
+                    | "where"
+                    | "while"
+            ),
+            6 => matches!(
+                word,
+                "deinit"
+                    | "didSet"
+                    | "import"
+                    | "public"
+                    | "repeat"
+                    | "return"
+                    | "static"
+                    | "struct"
+                    | "switch"
+                    | "throws"
+            ),
+            7 => matches!(
+                word,
+                "default" | "dynamic" | "package" | "private" | "unowned" | "willSet"
+            ),
+            8 => matches!(
+                word,
+                "continue"
+                    | "indirect"
+                    | "internal"
+                    | "isolated"
+                    | "mutating"
+                    | "operator"
+                    | "optional"
+                    | "override"
+                    | "protocol"
+                    | "required"
+                    | "rethrows"
+            ),
+            9 => matches!(
+                word,
+                "borrowing" | "consuming" | "extension" | "subscript" | "typealias"
+            ),
+            11 => matches!(
+                word,
+                "convenience" | "fallthrough" | "fileprivate" | "nonisolated" | "nonmutating"
+            ),
+            14 => matches!(word, "associatedtype"),
+            _ => false,
+        },
+        _ => match word.len() {
+            2 => matches!(word, "as" | "do" | "go" | "if" | "in" | "is" | "of"),
+            3 => matches!(
+                word,
+                "for"
+                    | "int"
+                    | "let"
+                    | "map"
+                    | "new"
+                    | "out"
+                    | "ref"
+                    | "try"
+                    | "use"
+                    | "val"
+                    | "var"
+            ),
+            4 => matches!(
+                word,
+                "case"
+                    | "char"
+                    | "else"
+                    | "enum"
+                    | "from"
+                    | "func"
+                    | "long"
+                    | "null"
+                    | "self"
+                    | "this"
+                    | "true"
+                    | "type"
+                    | "void"
+                    | "when"
+                    | "with"
+            ),
+            5 => matches!(
+                word,
+                "async"
+                    | "await"
+                    | "break"
+                    | "catch"
+                    | "class"
+                    | "const"
+                    | "defer"
+                    | "false"
+                    | "final"
+                    | "float"
+                    | "match"
+                    | "short"
+                    | "super"
+                    | "throw"
+                    | "trait"
+                    | "using"
+                    | "where"
+                    | "while"
+                    | "yield"
+            ),
+            6 => matches!(
+                word,
+                "delete"
+                    | "double"
+                    | "export"
+                    | "import"
+                    | "native"
+                    | "object"
+                    | "public"
+                    | "record"
+                    | "return"
+                    | "sealed"
+                    | "static"
+                    | "string"
+                    | "struct"
+                    | "switch"
+                    | "throws"
+                    | "typeof"
+            ),
+            7 => matches!(
+                word,
+                "boolean" | "default" | "extends" | "finally" | "package" | "private" | "virtual"
+            ),
+            8 => matches!(
+                word,
+                "abstract"
+                    | "continue"
+                    | "debugger"
+                    | "function"
+                    | "internal"
+                    | "override"
+                    | "readonly"
+                    | "unsigned"
+                    | "volatile"
+            ),
+            9 => matches!(
+                word,
+                "interface" | "namespace" | "protected" | "satisfies" | "undefined"
+            ),
+            10 => matches!(word, "implements" | "instanceof"),
+            12 => matches!(word, "synchronized"),
+            _ => false,
+        },
     }
 }
 fn scan(code: &str, language: &str) -> LexedCode {
