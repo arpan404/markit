@@ -8,6 +8,10 @@ export interface MarkitOptions {
   worker?: 'shared' | 'dedicated';
   /** WebGPU draws eligible large ASCII source views. Auto currently uses DOM until benchmarked. */
   codeRendering?: 'auto' | 'dom' | 'webgpu';
+  /** Minimum milliseconds between two renders of an open (`finalized: false`)
+   * message. Default: four times the last render's round trip, within 32–100.
+   * `0` renders every update. The final render is never delayed. */
+  streamInterval?: number;
   onLink?: (url: string) => void;
   onReference?: (reference: MarkitReference) => void;
   resolveImage?: (url: string, alt: string, signal: AbortSignal) => Blob | Uint8Array | null | Promise<Blob | Uint8Array | null>;

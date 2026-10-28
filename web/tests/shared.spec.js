@@ -131,3 +131,27 @@ test('importing the module starts the default shared worker, unless the page opt
   }
 });
 
+test('streaming renders are paced; the final render is not', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const { MarkitRenderer } = await import('/index.js');
+    const view = new MarkitRenderer(document.body.appendChild(document.createElement('div')), { worker: 'dedicated' });
+    const jobs = [];
+    let text = '';
+    for (let i = 0; i < 30; i++) {
+      text += `word${i} `;
+      jobs.push(view.render(text, { finalized: false }));
+      await new Promise(requestAnimationFrame);
+    }
+    const streamed = await Promise.all(jobs);
+    const final = await view.render(text + '**end**');
+    return {
+      applied: streamed.filter(patch => !patch.superseded).length,
+      final: final.superseded, html: document.querySelector('body > div.markit').innerHTML,
+    };
+  });
+  expect(result.applied).toBeGreaterThan(1);
+  // 30 frames are about 500 ms; at most one render per 32 ms.
+  expect(result.applied).toBeLessThan(20);
+  expect(result.final).toBe(false);
+  expect(result.html).toContain('word29 <strong>end</strong>');
+});

@@ -88,7 +88,7 @@ export class MarkitRenderer {
   #running = false; #queued; #destroyed = false; #options; #code = new WeakMap();
   #html = []; #dirty = Infinity; #payloads = new WeakMap(); #lines = new WeakMap();
   #urls = new Map(); #imageJobs = new Map(); #listeners = new AbortController();
-  #gpu; #gpuViews = new Map();
+  #gpu; #gpuViews = new Map(); #paced = -Infinity; #pace = 0; #timer;
   constructor(element, options = {}) {
     this.#element = element;
     this.#options = options;
@@ -142,11 +142,30 @@ export class MarkitRenderer {
       this.#drain();
     });
   }
+  /** Milliseconds between two renders of an open (streaming) message: the
+   * `streamInterval` option, or by default four times the last round trip,
+   * within 32–100 ms (up to 30 updates a second). Coalescing tokens this way
+   * halves DOM, style and layout work; the first token and the final render
+   * are never delayed. */
+  #interval() {
+    const fixed = this.#options.streamInterval;
+    return typeof fixed === 'number' ? fixed : Math.min(100, Math.max(32, this.#pace * 4));
+  }
   async #drain() {
     if (this.#running || !this.#queued) return;
+    if (!this.#queued.finalized) {
+      const wait = this.#paced + this.#interval() - performance.now();
+      if (wait > 0) {
+        this.#timer ??= setTimeout(() => { this.#timer = undefined; this.#drain(); }, wait);
+        return;
+      }
+    }
+    clearTimeout(this.#timer); this.#timer = undefined;
     this.#running = true;
     const job = this.#queued;
     this.#queued = undefined;
+    const started = performance.now();
+    if (!job.finalized) this.#paced = started;
     try {
       const patch = await this.#renderPatch(job.source, job.finalized);
       for (const block of patch.blocks) {
@@ -160,6 +179,7 @@ export class MarkitRenderer {
         this.#apply({ replace_from: this.#dirty, blocks: this.#html.slice(this.#dirty) });
         this.#dirty = Infinity;
       }
+      if (!job.finalized) this.#pace = performance.now() - started;
       job.resolve({ ...patch, blocks: patch.blocks.map(block => block.html), superseded: job.revision !== this.#revision });
     } catch (error) { job.reject(error); }
     finally { this.#running = false; this.#drain(); }
@@ -298,7 +318,7 @@ export class MarkitRenderer {
   }
   destroy() {
     if (this.#destroyed) return;
-    this.#destroyed = true; this.#listeners.abort();
+    this.#destroyed = true; this.#listeners.abort(); clearTimeout(this.#timer);
     this.#engine.release(this, this.#stream);
     if (!this.#engine.shared) this.#engine.terminate();
     this.#gpu?.then(gpu => gpu.destroy()); this.#gpuViews.clear();
