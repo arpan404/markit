@@ -122,3 +122,28 @@ fn full_grammars_match_recorded_output() {
     }
     assert_eq!(format!("{hash:016x}"), "86113db1668408bd");
 }
+
+/// Web patch bytes for math documents, pinned so `web/tests/math-font.spec.js`
+/// can check that Wasm, which draws with the core math font and loads the full
+/// font on demand, produces exactly what native code produces with the full font.
+pub const WEB_MATH_DOCUMENTS: [&str; 2] = [
+    "Core: $x^2$, $\\alpha_i \\to \\beta^{n+1}$, $\\mathbb{R}^n$ and\n\n$$\n\\sum_{i=1}^{n} \\frac{1}{i^2} = \\frac{\\pi^2}{6} \\quad \\left( \\begin{matrix} a & b \\\\ c & d \\end{matrix} \\right)\n$$\n\nDone.\n",
+    "Rare: $\\mathfrak{g} \\oplus \\mathscr{H}$, $\\text{café ☃}$, $\\phantom{\\mathfrak{X}}x$ and\n\n$$\n\\left\\langle \\begin{matrix} 1\\\\2\\\\3\\\\4\\\\5\\\\6\\\\7\\\\8\\\\9 \\end{matrix} \\right\\rangle \\oint_C \\omega\n$$\n",
+];
+
+#[test]
+fn web_math_patches_match_recorded_output() {
+    let hashes: Vec<String> = WEB_MATH_DOCUMENTS
+        .iter()
+        .map(|document| {
+            let mut stream = markit::StreamRenderer::new_web();
+            let mut hash = 0xcbf29ce484222325u64;
+            mix(
+                &mut hash,
+                &markit::encode_web_patch(&stream.append(document, true)),
+            );
+            format!("{hash:016x}")
+        })
+        .collect();
+    assert_eq!(hashes, ["9f34057f1d5643fb", "b6d1d30230ed5bb2"]);
+}

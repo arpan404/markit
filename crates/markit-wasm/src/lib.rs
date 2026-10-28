@@ -76,3 +76,19 @@ pub fn highlight_grammar(source: &str, language: &str) -> Result<String, JsValue
         .ok_or_else(|| JsValue::from_str("Build with the grammars feature"))?;
     Ok(serde_json::to_string(code.as_ref()).expect("serializable code"))
 }
+
+/// True once if a formula since the last call needed a glyph outline that the
+/// embedded core math font leaves out. The worker then installs the full font
+/// and renders the document again.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = mathFontMissing)]
+pub fn math_font_missing() -> bool {
+    markit::web_font::take_missing()
+}
+
+/// Installs the full STIX Two Math font (`pkg/STIXTwoMath-Regular.otf`).
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = installMathFont)]
+pub fn install_math_font(bytes: Vec<u8>) -> bool {
+    markit::web_font::install_full(bytes)
+}

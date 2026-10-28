@@ -15,7 +15,92 @@ pub struct MathVisual {
     pub width: u32,
     pub height: u32,
 }
-static FONT: OnceLock<MathFont> = OnceLock::new();
+/// Native builds embed latex-rust's full STIX Two Math face.
+#[cfg(not(target_arch = "wasm32"))]
+fn font() -> Option<&'static MathFont> {
+    static FONT: OnceLock<MathFont> = OnceLock::new();
+    Some(FONT.get_or_init(|| MathFont::stix_two_math().expect("bundled STIX font is valid")))
+}
+
+/// Wasm embeds a core cut of the same face instead of the 839 KB original; see
+/// `scripts/math-font-core.py`. All of its metrics equal the full face, so every
+/// layout is identical, but only the glyphs in `math-core-glyphs.txt` keep their
+/// outlines. A formula that would draw another glyph is not drawn: it sets
+/// [`web_font::take_missing`] so the host can load the full face with
+/// [`web_font::install_full`] and render again.
+#[cfg(target_arch = "wasm32")]
+pub mod web_font {
+    use super::*;
+    use std::cell::Cell;
+
+    static CORE_OTF: &[u8] = include_bytes!("../assets/math-core.otf");
+    /// One bit per glyph id: set when the core face keeps that glyph's outline.
+    static CORE_GLYPHS: &[u8] = include_bytes!("../assets/math-core-glyphs.bin");
+    static CORE: OnceLock<MathFont> = OnceLock::new();
+    static FULL: OnceLock<MathFont> = OnceLock::new();
+    thread_local! {
+        static MISSING: Cell<bool> = const { Cell::new(false) };
+    }
+
+    fn core() -> &'static MathFont {
+        CORE.get_or_init(|| MathFont::from_bytes(CORE_OTF).expect("core math font is valid"))
+    }
+
+    pub(super) fn font() -> Option<&'static MathFont> {
+        Some(FULL.get().unwrap_or_else(core))
+    }
+
+    /// Whether `tree` draws only glyphs whose outlines the current face holds.
+    pub(super) fn drawable(tree: &MathBox) -> bool {
+        if FULL.get().is_some() {
+            return true;
+        }
+        let mut ok = true;
+        visit(tree, &mut |gid| {
+            let gid = usize::from(gid);
+            ok &= CORE_GLYPHS
+                .get(gid / 8)
+                .is_some_and(|bits| bits & (1 << (gid % 8)) != 0);
+        });
+        if !ok {
+            MISSING.with(|missing| missing.set(true));
+        }
+        ok
+    }
+
+    fn visit(node: &MathBox, f: &mut impl FnMut(u16)) {
+        match &node.content {
+            BoxContent::Glyph { glyph_id, .. } => f(*glyph_id),
+            BoxContent::HList(children)
+            | BoxContent::VList(children)
+            | BoxContent::Overlap(children) => children.iter().for_each(|child| visit(child, f)),
+            BoxContent::Color(_, inner)
+            | BoxContent::BackColor(_, inner)
+            | BoxContent::Frame { inner, .. } => visit(inner, f),
+            _ => {}
+        }
+    }
+
+    /// True once since the last call if a formula needed the full face.
+    pub fn take_missing() -> bool {
+        MISSING.with(|missing| missing.replace(false))
+    }
+
+    /// Installs the full STIX Two Math face and drops formulas cached with the core face.
+    pub fn install_full(bytes: Vec<u8>) -> bool {
+        if FULL.get().is_none() {
+            let Ok(font) = MathFont::from_bytes(Vec::leak(bytes)) else {
+                return false;
+            };
+            let _ = FULL.set(font);
+        }
+        CACHE.with(|cache| *cache.borrow_mut() = crate::cache::Cache::new(4 * 1024 * 1024));
+        MISSING.with(|missing| missing.set(false));
+        true
+    }
+}
+#[cfg(target_arch = "wasm32")]
+use web_font::font;
 thread_local! {
     static CACHE: RefCell<crate::cache::Cache<(String, bool), Rc<CachedFormula>>> =
         RefCell::new(crate::cache::Cache::new(4 * 1024 * 1024));
@@ -146,7 +231,7 @@ fn render_visual(tex: &str, display: bool, output: MathOutput) -> Option<Arc<Mat
 }
 
 fn prepare_layout(tex: &str, display: bool) -> Option<MathBox> {
-    let font = FONT.get_or_init(|| MathFont::stix_two_math().expect("bundled STIX font is valid"));
+    let font = font()?;
     let ast = latex_rust::parse(tex).ok()?;
     let tree = latex_rust::layout(
         &ast,
@@ -180,8 +265,12 @@ fn prepare_layout(tex: &str, display: bool) -> Option<MathBox> {
 }
 
 fn derive_visual(tree: &MathBox, display: bool, output: MathOutput) -> Option<Arc<MathVisual>> {
-    let font = FONT.get_or_init(|| MathFont::stix_two_math().expect("bundled STIX font is valid"));
+    let font = font()?;
     let svg = if output != MathOutput::Pixels {
+        #[cfg(target_arch = "wasm32")]
+        if !web_font::drawable(tree) {
+            return None;
+        }
         let svg_options = SvgOptions {
             font_size_pt: Dim::from_i64(16),
             display,

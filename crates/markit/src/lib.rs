@@ -41,6 +41,8 @@ pub fn highlight_grammar(source: &str, language: &str) -> Option<std::sync::Arc<
     }
 }
 pub use html::{render_html, render_html_into};
+#[cfg(target_arch = "wasm32")]
+pub use math::web_font;
 pub use math::{render_math, MathVisual};
 pub use reference::{reference_target, Reference};
 pub use stream::{RenderPatch, RenderedBlock, StreamRenderer, WebCode};

@@ -1,4 +1,4 @@
-import init, { MarkdownStream, highlightCodePacked, highlightGrammar } from './pkg/markit_wasm.js';
+import init, { MarkdownStream, highlightCodePacked, highlightGrammar, mathFontMissing, installMathFont } from './pkg/markit_wasm.js';
 
 let memory;
 const ready = init().then(exports => { memory = exports.memory; });
@@ -55,7 +55,18 @@ export function decodeWebPatch(bytes) {
   return patch;
 }
 
-function render(data) {
+/** The Wasm module embeds a core cut of STIX Two Math. The first formula that
+ * needs a glyph outside it loads the full font once; see `web_font` in Rust. */
+let fullMathFont;
+function loadFullMathFont() {
+  fullMathFont ??= fetch(new URL('./pkg/STIXTwoMath-Regular.otf', import.meta.url))
+    .then(response => { if (!response.ok) throw new Error(`Math font: HTTP ${response.status}`); return response.arrayBuffer(); })
+    .then(bytes => { if (!installMathFont(new Uint8Array(bytes))) throw new Error('Invalid math font'); })
+    .catch(error => { fullMathFont = undefined; throw error; });
+  return fullMathFont;
+}
+
+async function render(data) {
   let entry = streams.get(data.stream);
   if (data.append !== undefined) {
     // An append continues the source this stream last rendered.
@@ -67,8 +78,17 @@ function render(data) {
   else if (data.source.startsWith(entry.previous)) delta = data.source.slice(entry.previous.length);
   else { entry.stream.reset(); entry.previous = ''; delta = data.source; }
   if (entry.previous.length + delta.length > 8 * 1024 * 1024) throw new Error('Invalid or oversized document');
-  const packed = entry.stream.appendPacked(delta, !!data.finalized);
+  let packed = entry.stream.appendPacked(delta, !!data.finalized);
   entry.previous += delta;
+  if (mathFontMissing()) {
+    // A formula was left as source because its glyphs are not in the core
+    // font. Layouts do not depend on the font cut, so render the whole
+    // document again with the full font; the patch replaces from block 0.
+    await loadFullMathFont();
+    if (streams.get(data.stream) !== entry) throw Object.assign(new Error('Markit stream released'), { code: 'resync' });
+    entry.stream.reset();
+    packed = entry.stream.appendPacked(entry.previous, !!data.finalized);
+  }
   return decodeWebPatch(packed);
 }
 
@@ -89,7 +109,7 @@ self.onmessage = async ({ data }) => {
       }
       return;
     }
-    const patch = render(data);
+    const patch = await render(data);
     const transfers = [];
     for (const block of patch.blocks) for (const code of block.codes ?? []) transfers.push(code.ranges.buffer);
     self.postMessage({ id, result: patch }, transfers);
