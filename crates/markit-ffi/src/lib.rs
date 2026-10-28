@@ -3,7 +3,7 @@ use std::{panic::catch_unwind, ptr, slice, str};
 #[cfg(target_os = "android")]
 mod android;
 
-/// Owned UTF-8 bytes. Release exactly once with markit_buffer_free.
+/// Owned bytes, UTF-8 for JSON/HTML and binary for the binary API. Release exactly once with markit_buffer_free.
 /// status: 0 success, 1 invalid UTF-8, 2 invalid argument, 3 internal panic.
 #[repr(C)]
 pub struct MarkitBuffer {
@@ -21,7 +21,10 @@ impl MarkitBuffer {
         }
     }
     fn owned(text: String) -> Self {
-        let bytes = text.into_bytes().into_boxed_slice();
+        Self::bytes(text.into_bytes())
+    }
+    fn bytes(bytes: Vec<u8>) -> Self {
+        let bytes = bytes.into_boxed_slice();
         let len = bytes.len();
         Self {
             data: Box::into_raw(bytes) as *mut u8,
@@ -29,6 +32,76 @@ impl MarkitBuffer {
             status: 0,
         }
     }
+}
+
+/// Borrowed code request. No JSON request allocation. mode 0 lexical, 1 grammar.
+#[repr(C)]
+pub struct MarkitCodeRequest {
+    pub source: *const u8,
+    pub source_len: usize,
+    pub language: *const u8,
+    pub language_len: usize,
+    pub mode: u32,
+}
+
+unsafe fn input<'a>(data: *const u8, len: usize) -> Result<&'a str, u32> {
+    if (data.is_null() && len != 0) || len > isize::MAX as usize {
+        return Err(2);
+    }
+    let bytes = if len == 0 {
+        &[]
+    } else {
+        unsafe { slice::from_raw_parts(data, len) }
+    };
+    str::from_utf8(bytes).map_err(|_| 1)
+}
+fn binary_result(result: Result<Vec<u8>, markit::BinaryError>) -> MarkitBuffer {
+    match result {
+        Ok(bytes) => MarkitBuffer::bytes(bytes),
+        Err(_) => MarkitBuffer::error(2),
+    }
+}
+
+/// # Safety
+/// Source must be readable for len bytes, as for markit_render. Free with markit_buffer_free.
+#[no_mangle]
+pub unsafe extern "C" fn markit_render_binary(source: *const u8, len: usize) -> MarkitBuffer {
+    catch_unwind(|| match unsafe { input(source, len) } {
+        Ok(source) => binary_result(markit::render_document_binary(source)),
+        Err(status) => MarkitBuffer::error(status),
+    })
+    .unwrap_or_else(|_| MarkitBuffer::error(3))
+}
+
+/// # Safety
+/// request points to a readable struct; its source and language are borrowed readable
+/// UTF-8 slices for this call only. No pointers are retained. Free output exactly once.
+#[no_mangle]
+pub unsafe extern "C" fn markit_code_binary(request: *const MarkitCodeRequest) -> MarkitBuffer {
+    if request.is_null() {
+        return MarkitBuffer::error(2);
+    }
+    catch_unwind(|| {
+        let r = unsafe { &*request };
+        let source = match unsafe { input(r.source, r.source_len) } {
+            Ok(s) => s,
+            Err(n) => return MarkitBuffer::error(n),
+        };
+        let language = match unsafe { input(r.language, r.language_len) } {
+            Ok(s) => s,
+            Err(n) => return MarkitBuffer::error(n),
+        };
+        let doc = match r.mode {
+            0 => markit::code_document(source, language),
+            1 => match markit::code_document_grammar(source, language) {
+                Some(d) => d,
+                None => return MarkitBuffer::error(2),
+            },
+            _ => return MarkitBuffer::error(2),
+        };
+        binary_result(markit::encode_document_binary(&doc))
+    })
+    .unwrap_or_else(|_| MarkitBuffer::error(3))
 }
 
 /// format 0 = native JSON, 1 = safe HTML, 2 = code document request JSON.
@@ -128,7 +201,7 @@ pub unsafe extern "C" fn markit_stream_free(stream: *mut markit::StreamRenderer)
 }
 
 /// # Safety
-/// Pass an unmodified buffer returned by markit_render, exactly once. Null error
+/// Pass an unmodified buffer returned by any render API, exactly once. Null error
 /// buffers are accepted. Copies of a buffer do not transfer additional ownership.
 #[no_mangle]
 pub unsafe extern "C" fn markit_buffer_free(buffer: MarkitBuffer) {
@@ -141,6 +214,50 @@ pub unsafe extern "C" fn markit_buffer_free(buffer: MarkitBuffer) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn binary_exports_preserve_plan_and_validate_borrowed_requests() {
+        let source = "const 🦀 = 1;";
+        let language = "ts";
+        let request = MarkitCodeRequest {
+            source: source.as_ptr(),
+            source_len: source.len(),
+            language: language.as_ptr(),
+            language_len: language.len(),
+            mode: 0,
+        };
+        let code = unsafe { markit_code_binary(&request) };
+        assert_eq!(code.status, 0);
+        assert_eq!(
+            unsafe { slice::from_raw_parts(code.data, code.len) },
+            markit::encode_document_binary(&markit::code_document(source, language)).unwrap()
+        );
+        unsafe { markit_buffer_free(code) };
+        let doc = unsafe { markit_render_binary(source.as_ptr(), source.len()) };
+        assert_eq!(doc.status, 0);
+        assert_eq!(
+            unsafe { slice::from_raw_parts(doc.data, doc.len) },
+            markit::render_document_binary(source).unwrap()
+        );
+        unsafe { markit_buffer_free(doc) };
+        for result in [
+            unsafe { markit_code_binary(ptr::null()) },
+            unsafe { markit_render_binary(ptr::null(), 1) },
+            unsafe { markit_render_binary(b"\xff".as_ptr(), 1) },
+            unsafe {
+                markit_code_binary(&MarkitCodeRequest {
+                    mode: 99,
+                    ..request
+                })
+            },
+        ] {
+            assert_ne!(result.status, 0);
+            unsafe { markit_buffer_free(result) };
+        }
+        let empty = unsafe { markit_render_binary(ptr::null(), 0) };
+        assert_eq!(empty.status, 0);
+        unsafe { markit_buffer_free(empty) };
+    }
 
     #[test]
     fn roundtrip_and_free_with_embedded_nul() {

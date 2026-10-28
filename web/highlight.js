@@ -1,7 +1,7 @@
 // Convert the Rust UTF-16 range buffer to the public token shape. The source
 // already lives in JS; it need not cross the bridge again inside token JSON.
 const colors = new Map();
-function color(rgb) {
+export function color(rgb) {
   let value = colors.get(rgb);
   if (value === undefined) {
     value = `#${rgb.toString(16).padStart(6, '0')}`;

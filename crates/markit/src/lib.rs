@@ -1,4 +1,6 @@
-//! Markdown to safe HTML or native UTF-16 text ranges. No global state or UI dependency.
+mod binary;
+pub use binary::{encode_document_binary, render_document_binary, BinaryError};
+// Markdown to safe HTML or native UTF-16 text ranges. No global state or UI dependency.
 mod cache;
 mod document;
 mod fence;
@@ -8,11 +10,17 @@ mod highlight;
 mod html;
 mod math;
 mod reference;
+mod span_index;
 mod stream;
+mod stream_fence;
+pub use span_index::SpanIndex;
 
 pub use document::{parse, Block, Document, Span, Style};
 pub use fence::{fence_info, FenceInfo};
-pub use highlight::{highlight, highlight_packed, language_alias, CodeToken, HighlightedCode};
+pub use highlight::{
+    code_document_json, for_each_code_span, highlight, highlight_json, highlight_packed,
+    language_alias, BorrowedCodeSpan, CodeToken, HighlightedCode,
+};
 
 /// Optional full Sublime grammars. Enable the `grammars` Cargo feature.
 pub fn highlight_grammar(source: &str, language: &str) -> Option<std::sync::Arc<HighlightedCode>> {
@@ -29,7 +37,7 @@ pub fn highlight_grammar(source: &str, language: &str) -> Option<std::sync::Arc<
 pub use html::{render_html, render_html_into};
 pub use math::{render_math, MathVisual};
 pub use reference::{reference_target, Reference};
-pub use stream::{RenderPatch, RenderedBlock, StreamRenderer};
+pub use stream::{RenderPatch, RenderedBlock, StreamRenderer, WebCode};
 
 /// Highlight a complete source file without wrapping it in a Markdown fence.
 pub fn code_document(source: &str, language: &str) -> Document {

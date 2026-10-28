@@ -21,6 +21,7 @@ impl<K: PartialEq + Hash, V: Clone> Cache<K, V> {
             limit,
         }
     }
+    #[cfg(test)]
     pub fn get(&mut self, key: &K) -> Option<V> {
         self.get_by(key, |candidate| candidate == key)
     }
@@ -51,6 +52,17 @@ impl<K: PartialEq + Hash, V: Clone> Cache<K, V> {
         let value = entry.2.clone();
         self.entries.push_front(entry);
         Some(value)
+    }
+    pub fn remove(&mut self, key: &K) {
+        if let Some(index) = self
+            .entries
+            .iter()
+            .position(|(_, candidate, _, _)| candidate == key)
+        {
+            if let Some((_, _, _, weight)) = self.entries.remove(index) {
+                self.weight -= weight;
+            }
+        }
     }
     pub fn insert(&mut self, key: K, value: V, weight: usize) {
         if weight > self.limit {

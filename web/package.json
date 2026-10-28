@@ -13,6 +13,7 @@
     "index.js",
     "worker.js",
     "highlight.js",
+    "code-lines.js",
     "gpu-code.js",
     "style.css",
     "pkg",

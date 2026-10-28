@@ -17,11 +17,22 @@ pub struct HighlightedCode {
     pub tokens: Vec<CodeToken>,
 }
 thread_local! {
+    static APPEND_SCAN: RefCell<Option<(String, Arc<LexedCode>)>> = const { RefCell::new(None) };
     static CACHE: RefCell<crate::cache::Cache<(String, String), Arc<LexedCode>>> = RefCell::new(crate::cache::Cache::new(4 * 1024 * 1024));
 }
 // Byte offsets share the caller's source. Materialize owned tokens only for
 // callers of the original token API; native spans and Wasm ranges skip them.
+#[derive(Clone, Copy, Default)]
+struct Checkpoint {
+    at: usize,
+    in_tag: bool,
+    runs: usize,
+    pending_start: usize,
+    pending_tone: Option<Tone>,
+}
+
 struct LexedCode {
+    checkpoint: Checkpoint,
     language: String,
     plain: bool,
     runs: Vec<(usize, Tone)>,
@@ -46,6 +57,17 @@ pub fn language_alias(language: &str) -> String {
     }
     .into()
 }
+// Wire palette order is stable for binary transport version 1.
+pub(crate) const PALETTE: [(&str, &str, u32, u32); 8] = [
+    ("#24292f", "#c9d1d9", 0x24292f, 0xc9d1d9),
+    ("#6e7781", "#8b949e", 0x6e7781, 0x8b949e),
+    ("#0a3069", "#a5d6ff", 0x0a3069, 0xa5d6ff),
+    ("#0550ae", "#79c0ff", 0x0550ae, 0x79c0ff),
+    ("#cf222e", "#ff7b72", 0xcf222e, 0xff7b72),
+    ("#8250df", "#d2a8ff", 0x8250df, 0xd2a8ff),
+    ("#953800", "#ffa657", 0x953800, 0xffa657),
+    ("#116329", "#7ee787", 0x116329, 0x7ee787),
+];
 #[derive(Clone, Copy, PartialEq)]
 enum Tone {
     Plain,
@@ -60,385 +82,396 @@ enum Tone {
     Punctuation,
 }
 impl Tone {
-    fn colors(self) -> (&'static str, &'static str) {
+    fn palette_id(self) -> usize {
         match self {
-            Self::Plain | Self::Punctuation => ("#24292f", "#c9d1d9"),
-            Self::Comment => ("#6e7781", "#8b949e"),
-            Self::String => ("#0a3069", "#a5d6ff"),
-            Self::Number | Self::Property => ("#0550ae", "#79c0ff"),
-            Self::Keyword => ("#cf222e", "#ff7b72"),
-            Self::Function => ("#8250df", "#d2a8ff"),
-            Self::Type => ("#953800", "#ffa657"),
-            Self::Tag => ("#116329", "#7ee787"),
+            Self::Plain | Self::Punctuation => 0,
+            Self::Comment => 1,
+            Self::String => 2,
+            Self::Number | Self::Property => 3,
+            Self::Keyword => 4,
+            Self::Function => 5,
+            Self::Type => 6,
+            Self::Tag => 7,
         }
+    }
+    fn colors(self) -> (&'static str, &'static str) {
+        let p = PALETTE[self.palette_id()];
+        (p.0, p.1)
+    }
+    fn rgb(self) -> (u32, u32) {
+        let p = PALETTE[self.palette_id()];
+        (p.2, p.3)
     }
 }
 fn word_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$')
 }
-fn keyword(word: &str, language: &str) -> bool {
-    // SQL keywords are case insensitive; other languages preserve identifier case.
-    let sql_word;
-    let word = if language == "sql" {
-        sql_word = word.to_ascii_lowercase();
-        sql_word.as_str()
+/// UTF-16 length with a SIMD-friendly ASCII fast path. Code is usually ASCII;
+/// `encode_utf16().count()` fully decodes UTF-8, which costs a second pass
+/// over every run. Identical result on all inputs.
+fn utf16_len(text: &str) -> usize {
+    let bytes = text.as_bytes();
+    if bytes.is_ascii() {
+        bytes.len()
     } else {
-        word
-    };
+        text.encode_utf16().count()
+    }
+}
+/// Length of the UTF-8 sequence starting at a known character boundary.
+/// The scanner only advances by whole characters, so `bytes[at]` is always a
+/// leading byte and this matches `str::chars().next().len_utf8()`.
+fn step_len(byte: u8) -> usize {
+    if byte < 0x80 {
+        1
+    } else if (byte >> 5) == 0b110 {
+        2
+    } else if (byte >> 4) == 0b1110 {
+        3
+    } else {
+        4
+    }
+}
+fn keyword(word: &str, language: &str) -> bool {
+    // Length dispatch first: most identifiers miss on length alone without
+    // comparing string bytes. SQL stays case insensitive without allocating
+    // a lowercased copy per identifier (`eq_ignore_ascii_case` folds ASCII,
+    // which matches `to_ascii_lowercase` on scanner identifiers exactly).
     match language {
-        "python" => matches!(
-            word,
-            "and"
-                | "as"
-                | "assert"
-                | "async"
-                | "await"
-                | "break"
-                | "class"
-                | "continue"
-                | "def"
-                | "del"
-                | "elif"
-                | "else"
-                | "except"
-                | "False"
-                | "finally"
-                | "for"
-                | "from"
-                | "global"
-                | "if"
-                | "import"
-                | "in"
-                | "is"
-                | "lambda"
-                | "None"
-                | "nonlocal"
-                | "not"
-                | "or"
-                | "pass"
-                | "raise"
-                | "return"
-                | "True"
-                | "try"
-                | "while"
-                | "with"
-                | "yield"
-                | "self"
-        ),
-        "bash" => matches!(
-            word,
-            "if" | "then"
-                | "else"
-                | "elif"
-                | "fi"
-                | "for"
-                | "in"
-                | "do"
-                | "done"
-                | "case"
-                | "esac"
-                | "while"
-                | "until"
-                | "function"
-                | "export"
-                | "local"
-                | "return"
-                | "echo"
-                | "cd"
-                | "source"
-                | "readonly"
-                | "unset"
-                | "declare"
-                | "select"
-                | "break"
-                | "continue"
-        ),
-        "sql" => matches!(
-            word,
-            "select"
-                | "from"
-                | "where"
-                | "join"
-                | "left"
-                | "right"
-                | "inner"
-                | "outer"
-                | "on"
-                | "as"
-                | "insert"
-                | "into"
-                | "update"
-                | "delete"
-                | "create"
-                | "table"
-                | "index"
-                | "drop"
-                | "alter"
-                | "values"
-                | "set"
-                | "null"
-                | "not"
-                | "and"
-                | "or"
-                | "order"
-                | "by"
-                | "group"
-                | "having"
-                | "limit"
-                | "offset"
-                | "union"
-                | "all"
-                | "distinct"
-                | "case"
-                | "when"
-                | "then"
-                | "else"
-                | "end"
-                | "primary"
-                | "key"
-                | "references"
-                | "default"
-                | "true"
-                | "false"
-        ),
-        "json" | "json5" => matches!(word, "true" | "false" | "null" | "Infinity" | "NaN"),
-        "yaml" => matches!(
-            word,
-            "true" | "false" | "null" | "yes" | "no" | "on" | "off"
-        ),
-        "rust" => matches!(
-            word,
-            "as" | "async"
-                | "await"
-                | "break"
-                | "const"
-                | "continue"
-                | "crate"
-                | "dyn"
-                | "else"
-                | "enum"
-                | "extern"
-                | "false"
-                | "fn"
-                | "for"
-                | "if"
-                | "impl"
-                | "in"
-                | "let"
-                | "loop"
-                | "match"
-                | "mod"
-                | "move"
-                | "mut"
-                | "pub"
-                | "ref"
-                | "return"
-                | "self"
-                | "Self"
-                | "static"
-                | "struct"
-                | "super"
-                | "trait"
-                | "true"
-                | "type"
-                | "unsafe"
-                | "use"
-                | "where"
-                | "while"
-                | "abstract"
-                | "become"
-                | "box"
-                | "do"
-                | "final"
-                | "macro"
-                | "override"
-                | "priv"
-                | "typeof"
-                | "unsized"
-                | "virtual"
-                | "yield"
-                | "try"
-                | "union"
-        ),
-        "swift" => matches!(
-            word,
-            "actor"
-                | "any"
-                | "as"
-                | "associatedtype"
-                | "async"
-                | "await"
-                | "borrowing"
-                | "break"
-                | "case"
-                | "catch"
-                | "class"
-                | "consuming"
-                | "continue"
-                | "convenience"
-                | "default"
-                | "defer"
-                | "deinit"
-                | "didSet"
-                | "do"
-                | "dynamic"
-                | "else"
-                | "enum"
-                | "extension"
-                | "fallthrough"
-                | "false"
-                | "fileprivate"
-                | "final"
-                | "for"
-                | "func"
-                | "get"
-                | "guard"
-                | "if"
-                | "import"
-                | "in"
-                | "indirect"
-                | "init"
-                | "inout"
-                | "internal"
-                | "is"
-                | "isolated"
-                | "lazy"
-                | "let"
-                | "mutating"
-                | "nil"
-                | "nonisolated"
-                | "nonmutating"
-                | "open"
-                | "operator"
-                | "optional"
-                | "override"
-                | "package"
-                | "private"
-                | "protocol"
-                | "public"
-                | "repeat"
-                | "required"
-                | "rethrows"
-                | "return"
-                | "self"
-                | "Self"
-                | "set"
-                | "some"
-                | "static"
-                | "struct"
-                | "subscript"
-                | "super"
-                | "switch"
-                | "throw"
-                | "throws"
-                | "true"
-                | "try"
-                | "typealias"
-                | "unowned"
-                | "var"
-                | "weak"
-                | "where"
-                | "while"
-                | "willSet"
-        ),
-        _ => matches!(
-            word,
-            "abstract"
-                | "as"
-                | "async"
-                | "await"
-                | "boolean"
-                | "break"
-                | "case"
-                | "catch"
-                | "char"
-                | "class"
-                | "const"
-                | "continue"
-                | "debugger"
-                | "default"
-                | "defer"
-                | "delete"
-                | "do"
-                | "double"
-                | "else"
-                | "enum"
-                | "export"
-                | "extends"
-                | "false"
-                | "final"
-                | "finally"
-                | "float"
-                | "for"
-                | "from"
-                | "func"
-                | "function"
-                | "go"
-                | "if"
-                | "implements"
-                | "import"
-                | "in"
-                | "instanceof"
-                | "int"
-                | "interface"
-                | "internal"
-                | "is"
-                | "let"
-                | "long"
-                | "map"
-                | "match"
-                | "namespace"
-                | "native"
-                | "new"
-                | "null"
-                | "object"
-                | "of"
-                | "out"
-                | "override"
-                | "package"
-                | "private"
-                | "protected"
-                | "public"
-                | "readonly"
-                | "record"
-                | "ref"
-                | "return"
-                | "satisfies"
-                | "sealed"
-                | "self"
-                | "short"
-                | "static"
-                | "string"
-                | "struct"
-                | "super"
-                | "switch"
-                | "synchronized"
-                | "this"
-                | "throw"
-                | "throws"
-                | "trait"
-                | "true"
-                | "try"
-                | "type"
-                | "typeof"
-                | "undefined"
-                | "unsigned"
-                | "use"
-                | "using"
-                | "val"
-                | "var"
-                | "virtual"
-                | "void"
-                | "volatile"
-                | "when"
-                | "where"
-                | "while"
-                | "with"
-                | "yield"
-        ),
+        "python" => match word.len() {
+            2 => matches!(word, "as" | "if" | "in" | "is" | "or"),
+            3 => matches!(word, "and" | "def" | "del" | "for" | "not" | "try"),
+            4 => matches!(
+                word,
+                "None" | "True" | "elif" | "else" | "from" | "pass" | "self" | "with"
+            ),
+            5 => matches!(
+                word,
+                "False" | "async" | "await" | "break" | "class" | "raise" | "while" | "yield"
+            ),
+            6 => matches!(
+                word,
+                "assert" | "except" | "global" | "import" | "lambda" | "return"
+            ),
+            7 => matches!(word, "finally"),
+            8 => matches!(word, "continue" | "nonlocal"),
+            _ => false,
+        },
+        "bash" => match word.len() {
+            2 => matches!(word, "cd" | "do" | "fi" | "if" | "in"),
+            3 => matches!(word, "for"),
+            4 => matches!(
+                word,
+                "case" | "done" | "echo" | "elif" | "else" | "esac" | "then"
+            ),
+            5 => matches!(word, "break" | "local" | "unset" | "until" | "while"),
+            6 => matches!(word, "export" | "return" | "select" | "source"),
+            7 => matches!(word, "declare"),
+            8 => matches!(word, "continue" | "function" | "readonly"),
+            _ => false,
+        },
+        "sql" => match word.len() {
+            2 => {
+                word.eq_ignore_ascii_case("as")
+                    || word.eq_ignore_ascii_case("by")
+                    || word.eq_ignore_ascii_case("on")
+                    || word.eq_ignore_ascii_case("or")
+            }
+            3 => {
+                word.eq_ignore_ascii_case("all")
+                    || word.eq_ignore_ascii_case("and")
+                    || word.eq_ignore_ascii_case("end")
+                    || word.eq_ignore_ascii_case("key")
+                    || word.eq_ignore_ascii_case("not")
+                    || word.eq_ignore_ascii_case("set")
+            }
+            4 => {
+                word.eq_ignore_ascii_case("case")
+                    || word.eq_ignore_ascii_case("drop")
+                    || word.eq_ignore_ascii_case("else")
+                    || word.eq_ignore_ascii_case("from")
+                    || word.eq_ignore_ascii_case("into")
+                    || word.eq_ignore_ascii_case("join")
+                    || word.eq_ignore_ascii_case("left")
+                    || word.eq_ignore_ascii_case("null")
+                    || word.eq_ignore_ascii_case("then")
+                    || word.eq_ignore_ascii_case("true")
+                    || word.eq_ignore_ascii_case("when")
+            }
+            5 => {
+                word.eq_ignore_ascii_case("alter")
+                    || word.eq_ignore_ascii_case("false")
+                    || word.eq_ignore_ascii_case("group")
+                    || word.eq_ignore_ascii_case("index")
+                    || word.eq_ignore_ascii_case("inner")
+                    || word.eq_ignore_ascii_case("limit")
+                    || word.eq_ignore_ascii_case("order")
+                    || word.eq_ignore_ascii_case("outer")
+                    || word.eq_ignore_ascii_case("right")
+                    || word.eq_ignore_ascii_case("table")
+                    || word.eq_ignore_ascii_case("union")
+                    || word.eq_ignore_ascii_case("where")
+            }
+            6 => {
+                word.eq_ignore_ascii_case("create")
+                    || word.eq_ignore_ascii_case("delete")
+                    || word.eq_ignore_ascii_case("having")
+                    || word.eq_ignore_ascii_case("insert")
+                    || word.eq_ignore_ascii_case("offset")
+                    || word.eq_ignore_ascii_case("select")
+                    || word.eq_ignore_ascii_case("update")
+                    || word.eq_ignore_ascii_case("values")
+            }
+            7 => word.eq_ignore_ascii_case("default") || word.eq_ignore_ascii_case("primary"),
+            8 => word.eq_ignore_ascii_case("distinct"),
+            10 => word.eq_ignore_ascii_case("references"),
+            _ => false,
+        },
+        "json" | "json5" => match word.len() {
+            3 => matches!(word, "NaN"),
+            4 => matches!(word, "null" | "true"),
+            5 => matches!(word, "false"),
+            8 => matches!(word, "Infinity"),
+            _ => false,
+        },
+        "yaml" => match word.len() {
+            2 => matches!(word, "no" | "on"),
+            3 => matches!(word, "off" | "yes"),
+            4 => matches!(word, "null" | "true"),
+            5 => matches!(word, "false"),
+            _ => false,
+        },
+        "rust" => match word.len() {
+            2 => matches!(word, "as" | "do" | "fn" | "if" | "in"),
+            3 => matches!(
+                word,
+                "box" | "dyn" | "for" | "let" | "mod" | "mut" | "pub" | "ref" | "try" | "use"
+            ),
+            4 => matches!(
+                word,
+                "Self"
+                    | "else"
+                    | "enum"
+                    | "impl"
+                    | "loop"
+                    | "move"
+                    | "priv"
+                    | "self"
+                    | "true"
+                    | "type"
+            ),
+            5 => matches!(
+                word,
+                "async"
+                    | "await"
+                    | "break"
+                    | "const"
+                    | "crate"
+                    | "false"
+                    | "final"
+                    | "macro"
+                    | "match"
+                    | "super"
+                    | "trait"
+                    | "union"
+                    | "where"
+                    | "while"
+                    | "yield"
+            ),
+            6 => matches!(
+                word,
+                "become" | "extern" | "return" | "static" | "struct" | "typeof" | "unsafe"
+            ),
+            7 => matches!(word, "unsized" | "virtual"),
+            8 => matches!(word, "abstract" | "continue" | "override"),
+            _ => false,
+        },
+        "swift" => match word.len() {
+            2 => matches!(word, "as" | "do" | "if" | "in" | "is"),
+            3 => matches!(
+                word,
+                "any" | "for" | "get" | "let" | "nil" | "set" | "try" | "var"
+            ),
+            4 => matches!(
+                word,
+                "Self"
+                    | "case"
+                    | "else"
+                    | "enum"
+                    | "func"
+                    | "init"
+                    | "lazy"
+                    | "open"
+                    | "self"
+                    | "some"
+                    | "true"
+                    | "weak"
+            ),
+            5 => matches!(
+                word,
+                "actor"
+                    | "async"
+                    | "await"
+                    | "break"
+                    | "catch"
+                    | "class"
+                    | "defer"
+                    | "false"
+                    | "final"
+                    | "guard"
+                    | "inout"
+                    | "super"
+                    | "throw"
+                    | "where"
+                    | "while"
+            ),
+            6 => matches!(
+                word,
+                "deinit"
+                    | "didSet"
+                    | "import"
+                    | "public"
+                    | "repeat"
+                    | "return"
+                    | "static"
+                    | "struct"
+                    | "switch"
+                    | "throws"
+            ),
+            7 => matches!(
+                word,
+                "default" | "dynamic" | "package" | "private" | "unowned" | "willSet"
+            ),
+            8 => matches!(
+                word,
+                "continue"
+                    | "indirect"
+                    | "internal"
+                    | "isolated"
+                    | "mutating"
+                    | "operator"
+                    | "optional"
+                    | "override"
+                    | "protocol"
+                    | "required"
+                    | "rethrows"
+            ),
+            9 => matches!(
+                word,
+                "borrowing" | "consuming" | "extension" | "subscript" | "typealias"
+            ),
+            11 => matches!(
+                word,
+                "convenience" | "fallthrough" | "fileprivate" | "nonisolated" | "nonmutating"
+            ),
+            14 => matches!(word, "associatedtype"),
+            _ => false,
+        },
+        _ => match word.len() {
+            2 => matches!(word, "as" | "do" | "go" | "if" | "in" | "is" | "of"),
+            3 => matches!(
+                word,
+                "for"
+                    | "int"
+                    | "let"
+                    | "map"
+                    | "new"
+                    | "out"
+                    | "ref"
+                    | "try"
+                    | "use"
+                    | "val"
+                    | "var"
+            ),
+            4 => matches!(
+                word,
+                "case"
+                    | "char"
+                    | "else"
+                    | "enum"
+                    | "from"
+                    | "func"
+                    | "long"
+                    | "null"
+                    | "self"
+                    | "this"
+                    | "true"
+                    | "type"
+                    | "void"
+                    | "when"
+                    | "with"
+            ),
+            5 => matches!(
+                word,
+                "async"
+                    | "await"
+                    | "break"
+                    | "catch"
+                    | "class"
+                    | "const"
+                    | "defer"
+                    | "false"
+                    | "final"
+                    | "float"
+                    | "match"
+                    | "short"
+                    | "super"
+                    | "throw"
+                    | "trait"
+                    | "using"
+                    | "where"
+                    | "while"
+                    | "yield"
+            ),
+            6 => matches!(
+                word,
+                "delete"
+                    | "double"
+                    | "export"
+                    | "import"
+                    | "native"
+                    | "object"
+                    | "public"
+                    | "record"
+                    | "return"
+                    | "sealed"
+                    | "static"
+                    | "string"
+                    | "struct"
+                    | "switch"
+                    | "throws"
+                    | "typeof"
+            ),
+            7 => matches!(
+                word,
+                "boolean" | "default" | "extends" | "finally" | "package" | "private" | "virtual"
+            ),
+            8 => matches!(
+                word,
+                "abstract"
+                    | "continue"
+                    | "debugger"
+                    | "function"
+                    | "internal"
+                    | "override"
+                    | "readonly"
+                    | "unsigned"
+                    | "volatile"
+            ),
+            9 => matches!(
+                word,
+                "interface" | "namespace" | "protected" | "satisfies" | "undefined"
+            ),
+            10 => matches!(word, "implements" | "instanceof"),
+            12 => matches!(word, "synchronized"),
+            _ => false,
+        },
     }
 }
 fn scan(code: &str, language: &str) -> LexedCode {
+    scan_from(code, language, None)
+}
+
+fn scan_from(code: &str, language: &str, previous: Option<&LexedCode>) -> LexedCode {
     let supported = [
         "typescript",
         "tsx",
@@ -466,6 +499,7 @@ fn scan(code: &str, language: &str) -> LexedCode {
     ]
     .contains(&language);
     let plain = || LexedCode {
+        checkpoint: Checkpoint::default(),
         language: language.into(),
         plain: true,
         runs: vec![(code.len(), Tone::Plain)],
@@ -475,45 +509,65 @@ fn scan(code: &str, language: &str) -> LexedCode {
         return plain();
     }
     let bytes = code.as_bytes();
-    let mut at = 0;
-    let mut runs = Vec::new();
-    let mut in_tag = false;
+    let mut checkpoint = previous.map_or(Checkpoint::default(), |old| old.checkpoint);
+    let mut at = checkpoint.at;
+    let mut runs = previous.map_or_else(Vec::new, |old| old.runs[..checkpoint.runs].to_vec());
+    let mut in_tag = checkpoint.in_tag;
+    let line_start = code.rfind('\n').map_or(0, |at| at + 1);
+    let mut future_dependent = false;
     let hash_comment = matches!(language, "python" | "bash" | "yaml");
     let slash_comment = !matches!(language, "python" | "bash" | "yaml" | "html" | "markdown");
     let markup = matches!(language, "html" | "jsx" | "tsx");
-    let mut pending_start = 0;
-    let mut pending_tone = Tone::Plain;
+    let mut pending_start = checkpoint.pending_start;
+    let mut pending_tone = checkpoint.pending_tone.unwrap_or(Tone::Plain);
     while at < bytes.len() {
+        // A token crossing the last line (string, comment, raw delimiter) is
+        // rechecked from its start. Earlier runs and markup state stay valid.
+        if at <= line_start && !future_dependent {
+            checkpoint = Checkpoint {
+                at,
+                in_tag,
+                runs: runs.len(),
+                pending_start,
+                pending_tone: Some(pending_tone),
+            };
+        }
         let start = at;
         let byte = bytes[at];
         let mut tone = Tone::Plain;
         if (hash_comment && byte == b'#')
-            || (slash_comment && code[at..].starts_with("//"))
-            || (language == "sql" && code[at..].starts_with("--"))
+            || (slash_comment && byte == b'/' && bytes.get(at + 1) == Some(&b'/'))
+            || (language == "sql" && byte == b'-' && bytes.get(at + 1) == Some(&b'-'))
         {
-            at += code[at..].find('\n').unwrap_or(bytes.len() - at);
+            at += bytes[at..]
+                .iter()
+                .position(|&b| b == b'\n')
+                .unwrap_or(bytes.len() - at);
             tone = Tone::Comment;
-        } else if slash_comment && code[at..].starts_with("/*") {
+        } else if slash_comment && byte == b'/' && bytes.get(at + 1) == Some(&b'*') {
             at += 2;
             let mut depth = 1;
             while at < bytes.len() && depth > 0 {
-                if language == "rust" && code[at..].starts_with("/*") {
+                if language == "rust" && bytes[at] == b'/' && bytes.get(at + 1) == Some(&b'*') {
                     depth += 1;
                     at += 2;
-                } else if code[at..].starts_with("*/") {
+                } else if bytes[at] == b'*' && bytes.get(at + 1) == Some(&b'/') {
                     depth -= 1;
                     at += 2;
                 } else {
-                    at += code[at..].chars().next().unwrap().len_utf8();
+                    at += step_len(bytes[at]);
                 }
             }
             tone = Tone::Comment;
-        } else if markup && code[at..].starts_with("<!--") {
+        } else if markup && byte == b'<' && bytes.get(at + 1..at + 4) == Some(b"!--".as_slice()) {
             at = code[at + 4..]
                 .find("-->")
                 .map_or(bytes.len(), |end| at + 4 + end + 3);
             tone = Tone::Comment;
-        } else if language == "rust" && byte == b'r' && code[at + 1..].starts_with(['#', '"']) {
+        } else if language == "rust"
+            && byte == b'r'
+            && matches!(bytes.get(at + 1), Some(b'#') | Some(b'"'))
+        {
             let hashes = bytes[at + 1..].iter().take_while(|&&b| b == b'#').count();
             let quote = at + 1 + hashes;
             if bytes.get(quote) == Some(&b'"') {
@@ -547,7 +601,7 @@ fn scan(code: &str, language: &str) -> LexedCode {
                     if bytes[at] == b'\\' {
                         at += 1;
                         if at < bytes.len() {
-                            at += code[at..].chars().next().unwrap().len_utf8();
+                            at += step_len(bytes[at]);
                         }
                     } else if bytes[at] == byte
                         && (!triple
@@ -558,7 +612,7 @@ fn scan(code: &str, language: &str) -> LexedCode {
                         at += marker;
                         break;
                     } else {
-                        at += code[at..].chars().next().unwrap().len_utf8();
+                        at += step_len(bytes[at]);
                     }
                 }
                 tone = Tone::String;
@@ -578,6 +632,7 @@ fn scan(code: &str, language: &str) -> LexedCode {
             }
             let word = &code[start..at];
             let after = code[at..].trim_start();
+            future_dependent |= after.is_empty();
             tone = if keyword(word, language) {
                 Tone::Keyword
             } else if in_tag && markup {
@@ -603,7 +658,7 @@ fn scan(code: &str, language: &str) -> LexedCode {
                     in_tag = false;
                 }
             }
-            at += code[at..].chars().next().unwrap().len_utf8();
+            at += step_len(byte);
             if byte.is_ascii_punctuation() {
                 tone = Tone::Punctuation;
             }
@@ -632,6 +687,7 @@ fn scan(code: &str, language: &str) -> LexedCode {
         return plain();
     }
     LexedCode {
+        checkpoint,
         language: language.into(),
         plain: false,
         runs,
@@ -649,7 +705,18 @@ fn lex(code: &str, language: &str) -> Arc<LexedCode> {
     }) {
         return cached;
     }
-    let result = Arc::new(scan(code, &language));
+    let result = APPEND_SCAN.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        let previous = slot.as_ref().filter(|(source, old)| {
+            old.language == language && !old.plain && code.starts_with(source.as_str())
+        });
+        let result = Arc::new(match previous {
+            Some((_, old)) => scan_from(code, &language, Some(old)),
+            None => scan(code, &language),
+        });
+        *slot = (code.len() <= 1024 * 1024).then(|| (code.to_owned(), result.clone()));
+        result
+    });
     // Reserve the budget for lazy token materialization as well as compact runs.
     let weight = language.len() + code.len() * 2 + result.runs.len() * 128;
     CACHE.with(|cache| {
@@ -712,7 +779,7 @@ pub(crate) fn append_syntax_spans(
     let mut start = 0;
     let mut offset = base;
     for &(end, tone) in &lexed.runs {
-        let next = offset + code[start..end].encode_utf16().count();
+        let next = offset + utf16_len(&code[start..end]);
         if next > offset {
             let (light, dark) = tone.colors();
             spans.push(crate::Span {
@@ -742,7 +809,7 @@ pub(crate) fn code_document(code: &str, language: &str) -> crate::Document {
         },
     });
     for &(end, tone) in &lexed.runs {
-        let next = offset + code[start..end].encode_utf16().count();
+        let next = offset + utf16_len(&code[start..end]);
         if !lexed.plain && next > offset {
             let (light, dark) = tone.colors();
             spans.push(crate::Span {
@@ -770,6 +837,198 @@ pub(crate) fn code_document(code: &str, language: &str) -> crate::Document {
     }
 }
 
+/// Borrowed view of one [`code_document`](crate::code_document) span, without
+/// the per-run owned [`Style::Syntax`](crate::Style::Syntax) strings. The
+/// first emission is always the code-block span; syntax spans follow in
+/// document order and are skipped when the source falls back to plain text.
+/// Colors are `&'static str` palette entries, so streaming them (into JSON or
+/// native ranges) never allocates per run. Spans are only valid for the
+/// duration of the `emit` call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BorrowedCodeSpan<'a> {
+    CodeBlock {
+        start: usize,
+        end: usize,
+        language: &'a str,
+    },
+    Syntax {
+        start: usize,
+        end: usize,
+        light: &'static str,
+        dark: &'static str,
+    },
+}
+
+/// Emit every [`code_document`](crate::code_document) span without building
+/// owned tokens or [`Style::Syntax`](crate::Style::Syntax) strings. The two
+/// [`String`] clones per run dominate native misses; the shared [`lex`] cache
+/// entry already holds compact `(end, Tone)` runs, so this walks them exactly
+/// like [`code_document`](crate::code_document) and borrows the rest.
+pub fn for_each_code_span(code: &str, language: &str, mut emit: impl FnMut(BorrowedCodeSpan<'_>)) {
+    let lexed = lex(code, language);
+    let total = utf16_len(code);
+    emit(BorrowedCodeSpan::CodeBlock {
+        start: 0,
+        end: total,
+        language: &lexed.language,
+    });
+    if lexed.plain {
+        return;
+    }
+    let mut start = 0;
+    let mut offset = 0;
+    for (end, light, dark) in SpanOffsets::new(&lexed.runs) {
+        let next = offset + utf16_len(&code[start..end]);
+        if next > offset {
+            emit(BorrowedCodeSpan::Syntax {
+                start: offset,
+                end: next,
+                light,
+                dark,
+            });
+        }
+        start = end;
+        offset = next;
+    }
+}
+
+/// Byte-to-UTF-16 walk shared by [`for_each_code_span`] and
+/// [`code_document_json`], mirroring the [`code_document`] loop so offsets
+/// cannot drift between the borrowed and owned paths.
+struct SpanOffsets<'a> {
+    runs: std::slice::Iter<'a, (usize, Tone)>,
+}
+
+impl<'a> SpanOffsets<'a> {
+    fn new(runs: &'a [(usize, Tone)]) -> Self {
+        Self { runs: runs.iter() }
+    }
+}
+
+impl Iterator for SpanOffsets<'_> {
+    type Item = (usize, &'static str, &'static str);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let &(end, tone) = self.runs.next()?;
+        let (light, dark) = tone.colors();
+        Some((end, light, dark))
+    }
+}
+
+/// Serialize `{"version","text","spans","blocks"}` directly from compact
+/// runs, without materializing a [`Document`](crate::Document). The native
+/// `code_document` bridge needs JSON text, not span structs; building them
+/// first costs two owned [`String`]s per run plus the document, block-kind
+/// and text clones, then a second pass to re-serialize. This emits
+/// byte-identical JSON: field order matches the derived `Serialize` impls
+/// (`Span` fields, then the flattened internally-tagged `Style`), and
+/// `&str`/`&'static str` serialize exactly like the owned [`String`]s they
+/// replace.
+pub fn code_document_json(code: &str, language: &str) -> String {
+    serde_json::to_string(&CodeDocumentJson {
+        code,
+        lexed: &lex(code, language),
+    })
+    .expect("code document serialization is infallible")
+}
+
+struct CodeDocumentJson<'a> {
+    code: &'a str,
+    lexed: &'a LexedCode,
+}
+
+impl serde::Serialize for CodeDocumentJson<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut out = serializer.serialize_struct("Document", 4)?;
+        out.serialize_field("version", &2u32)?;
+        out.serialize_field("text", &self.code)?;
+        out.serialize_field("spans", &DocumentSpans { doc: self })?;
+        out.serialize_field("blocks", &DocumentBlocks { doc: self })?;
+        out.end()
+    }
+}
+
+struct DocumentSpans<'a> {
+    doc: &'a CodeDocumentJson<'a>,
+}
+
+impl serde::Serialize for DocumentSpans<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeSeq;
+        let runs = self.doc.lexed.runs.len();
+        let mut seq = serializer.serialize_seq(Some(runs + 1))?;
+        let total = utf16_len(self.doc.code);
+        // Same shape and field order as `Span` with a flattened `CodeBlock`.
+        seq.serialize_element(&BorrowedCodeBlockSpan {
+            start: 0,
+            end: total,
+            kind: "code_block",
+            language: &self.doc.lexed.language,
+        })?;
+        if !self.doc.lexed.plain {
+            let mut start = 0;
+            let mut offset = 0;
+            for (end, light, dark) in SpanOffsets::new(&self.doc.lexed.runs) {
+                let next = offset + utf16_len(&self.doc.code[start..end]);
+                if next > offset {
+                    // Same shape and field order as `Span` with flattened `Syntax`.
+                    seq.serialize_element(&BorrowedSyntaxSpan {
+                        start: offset,
+                        end: next,
+                        kind: "syntax",
+                        light,
+                        dark,
+                    })?;
+                }
+                start = end;
+                offset = next;
+            }
+        }
+        seq.end()
+    }
+}
+
+#[derive(serde::Serialize)]
+struct BorrowedCodeBlockSpan<'a> {
+    start: usize,
+    end: usize,
+    kind: &'static str,
+    language: &'a str,
+}
+
+#[derive(serde::Serialize)]
+struct BorrowedSyntaxSpan {
+    start: usize,
+    end: usize,
+    kind: &'static str,
+    light: &'static str,
+    dark: &'static str,
+}
+
+struct DocumentBlocks<'a> {
+    doc: &'a CodeDocumentJson<'a>,
+}
+
+impl serde::Serialize for DocumentBlocks<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeSeq;
+        let mut seq = serializer.serialize_seq(Some(1))?;
+        seq.serialize_element(&BorrowedBlock {
+            start: 0,
+            end: utf16_len(self.doc.code),
+            kind: "code",
+        })?;
+        seq.end()
+    }
+}
+
+#[derive(serde::Serialize)]
+struct BorrowedBlock {
+    start: usize,
+    end: usize,
+    kind: &'static str,
+}
 /// Compact lexical result for Wasm. Words are version 1, plain flag, language
 /// UTF-16 length, language UTF-16 units, then triples of end UTF-16 offset and
 /// light/dark 24-bit RGB. Runs are contiguous and start at offset zero.
@@ -782,14 +1041,172 @@ pub fn highlight_packed(code: &str, language: &str) -> Vec<u32> {
     let mut start = 0;
     let mut offset = 0;
     for &(end, tone) in &lexed.runs {
-        offset += code[start..end].encode_utf16().count() as u32;
-        let (light, dark) = tone.colors();
-        words.extend([
-            offset,
-            u32::from_str_radix(&light[1..], 16).unwrap(),
-            u32::from_str_radix(&dark[1..], 16).unwrap(),
-        ]);
+        offset += utf16_len(&code[start..end]) as u32;
+        let (light, dark) = tone.rgb();
+        words.extend([offset, light, dark]);
         start = end;
     }
     words
+}
+
+/// Serialize `{"language","plain","tokens":[...]}` directly from compact
+/// runs, without materializing owned [`HighlightedCode`] tokens. The Wasm
+/// `highlightCode` bridge needs JSON text, not token structs; building them
+/// first costs three owned `String`s per token (duplicating the whole source
+/// inside the shared cache entry) plus a second pass to re-serialize. This
+/// emits byte-identical JSON: field order matches the derived `Serialize`
+/// impls, and `&str`/`&'static str` serialize exactly like the owned
+/// `String`s they replace.
+pub fn highlight_json(code: &str, language: &str) -> String {
+    serde_json::to_string(&RunsJson {
+        code,
+        lexed: &lex(code, language),
+    })
+    .expect("highlight serialization is infallible")
+}
+
+struct RunsJson<'a> {
+    code: &'a str,
+    lexed: &'a LexedCode,
+}
+
+impl serde::Serialize for RunsJson<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut out = serializer.serialize_struct("HighlightedCode", 3)?;
+        out.serialize_field("language", &self.lexed.language)?;
+        out.serialize_field("plain", &self.lexed.plain)?;
+        out.serialize_field("tokens", &RunsTokens { json: self })?;
+        out.end()
+    }
+}
+
+struct RunsTokens<'a> {
+    json: &'a RunsJson<'a>,
+}
+
+impl serde::Serialize for RunsTokens<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeSeq;
+        let mut seq = serializer.serialize_seq(Some(self.json.lexed.runs.len()))?;
+        let mut start = 0;
+        for &(end, tone) in &self.json.lexed.runs {
+            let (light, dark) = tone.colors();
+            // Same shape and field order as `CodeToken`.
+            seq.serialize_element(&BorrowedToken {
+                text: &self.json.code[start..end],
+                light,
+                dark,
+            })?;
+            start = end;
+        }
+        seq.end()
+    }
+}
+
+#[derive(serde::Serialize)]
+struct BorrowedToken<'a> {
+    text: &'a str,
+    light: &'static str,
+    dark: &'static str,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn packed_rgb_matches_hex_palette() {
+        for tone in [
+            Tone::Plain,
+            Tone::Comment,
+            Tone::String,
+            Tone::Number,
+            Tone::Keyword,
+            Tone::Function,
+            Tone::Type,
+            Tone::Property,
+            Tone::Tag,
+            Tone::Punctuation,
+        ] {
+            let (light, dark) = tone.colors();
+            let (light_rgb, dark_rgb) = tone.rgb();
+            assert_eq!(light_rgb, u32::from_str_radix(&light[1..], 16).unwrap());
+            assert_eq!(dark_rgb, u32::from_str_radix(&dark[1..], 16).unwrap());
+        }
+    }
+
+    #[test]
+    fn utf16_len_matches_encode_count() {
+        for text in [
+            "",
+            "fn main() {}",
+            "café",
+            "中文 rust",
+            "c 🦀",
+            "mix 🦀 é 中 end",
+        ] {
+            assert_eq!(utf16_len(text), text.encode_utf16().count());
+        }
+    }
+
+    #[test]
+    fn borrowed_code_spans_match_owned_document() {
+        for (source, language) in [
+            (
+                "export function greet(name: string): string {\n  // c 🦀\n  return `Hi ${name}!`;\n}\n",
+                "ts",
+            ),
+            (
+                "fn main() {\n    let x: u32 = 0xff; // hi\n    println!(\"r#{raw}#\");\n}\n",
+                "rust",
+            ),
+            (
+                "def f(x):\n    # comment\n    return \"\"\"triple 🦀\"\"\" + 1.5\n",
+                "python",
+            ),
+            ("SELECT a FROM t WHERE x = 1 AND y = 'Z';\n", "sql"),
+            ("<div class=\"a\"><!-- c --><p>hi</p></div>\n", "html"),
+            ("just plain text here\n", "unknown-markit-language"),
+            ("", "rust"),
+            ("", "unknown-markit-language"),
+        ] {
+            let owned = code_document(source, language);
+            assert_eq!(
+                code_document_json(source, language),
+                serde_json::to_string(&owned).expect("document serialization is infallible"),
+                "{language}"
+            );
+            let mut rebuilt = Vec::with_capacity(owned.spans.len());
+            for_each_code_span(source, language, |span| {
+                rebuilt.push(match span {
+                    BorrowedCodeSpan::CodeBlock {
+                        start,
+                        end,
+                        language,
+                    } => crate::Span {
+                        start,
+                        end,
+                        style: crate::Style::CodeBlock {
+                            language: language.into(),
+                        },
+                    },
+                    BorrowedCodeSpan::Syntax {
+                        start,
+                        end,
+                        light,
+                        dark,
+                    } => crate::Span {
+                        start,
+                        end,
+                        style: crate::Style::Syntax {
+                            light: light.into(),
+                            dark: dark.into(),
+                        },
+                    },
+                });
+            });
+            assert_eq!(rebuilt, owned.spans, "{language}");
+        }
+    }
 }

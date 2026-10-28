@@ -352,10 +352,21 @@ pub fn parse(source: &str) -> Document {
 }
 
 pub(crate) fn parse_with_refs(source: &str, references: &crate::References) -> Document {
+    let prepared = crate::math::prepare(source);
+    parse_events(
+        &prepared,
+        super::parser_with_refs(&prepared.source, references),
+    )
+}
+
+pub(crate) fn parse_events<'a>(
+    prepared: &crate::math::Prepared<'_>,
+    events: impl Iterator<Item = Event<'a>>,
+) -> Document {
     let mut builder = Builder {
         document: Document {
             version: 2,
-            text: String::with_capacity(source.len()),
+            text: String::new(),
             spans: Vec::new(),
             blocks: Vec::new(),
         },
@@ -370,8 +381,7 @@ pub(crate) fn parse_with_refs(source: &str, references: &crate::References) -> D
         alignments: Vec::new(),
         block: None,
     };
-    let prepared = crate::math::prepare(source);
-    for event in super::parser_with_refs(&prepared.source, references) {
+    for event in events {
         match event {
             Event::Start(tag) => builder.start(tag),
             Event::End(end) => builder.end(end),
