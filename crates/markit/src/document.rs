@@ -1,5 +1,6 @@
 use pulldown_cmark::{CodeBlockKind, Event, Tag, TagEnd};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 /// All positions are UTF-16 code units, matching NSRange and Android spans.
 /// Ranges are half-open and index the rendered `text`, not the Markdown source.
@@ -64,11 +65,13 @@ pub enum Style {
         diff: bool,
     },
     Syntax {
-        light: String,
-        dark: String,
+        // Borrowed palette entries clone without copying the color text.
+        // Grammar colors that miss the palette stay owned.
+        light: Cow<'static, str>,
+        dark: Cow<'static, str>,
     },
     Diff {
-        change: String,
+        change: Cow<'static, str>,
     },
     Math {
         tex: String,
@@ -111,7 +114,7 @@ struct Builder {
 impl Builder {
     fn text(&mut self, text: &str) {
         self.document.text.push_str(text);
-        self.position += text.encode_utf16().count();
+        self.position += crate::highlight::utf16_len(text);
     }
 
     fn newline(&mut self) {
@@ -274,7 +277,7 @@ impl Builder {
             if info.diff {
                 let mut position = frame.start;
                 for line in code.split_inclusive('\n') {
-                    let end = position + line.encode_utf16().count();
+                    let end = position + crate::highlight::utf16_len(line);
                     let change = if line.starts_with("+++")
                         || line.starts_with("---")
                         || line.starts_with("@@")
@@ -390,8 +393,8 @@ pub(crate) fn parse_events<'a>(
                 let in_link_or_code = builder.link_suppression > 0;
                 if !in_link_or_code {
                     for (range, url) in crate::html::bare_links(&text) {
-                        let link_start = start + text[..range.start].encode_utf16().count();
-                        let end = link_start + text[range].encode_utf16().count();
+                        let link_start = start + crate::highlight::utf16_len(&text[..range.start]);
+                        let end = link_start + crate::highlight::utf16_len(&text[range]);
                         builder.document.spans.push(Span {
                             start: link_start,
                             end,
@@ -524,4 +527,346 @@ pub(crate) fn parse_events<'a>(
     }
     builder.document.blocks = blocks;
     builder.document
+}
+
+/// Native code-fence document built from lexical runs. Output matches
+/// [`parse_events`] for a single fenced block, including the empty-fence
+/// newline and the trailing newline pulldown does not treat as a diff line.
+pub(crate) struct FenceDoc {
+    syntax: Vec<Span>,
+    diffs: Vec<Span>,
+    kept_runs: usize,
+    kept_diffs: usize,
+    stable: usize,
+    language: String,
+    diff: bool,
+}
+
+impl FenceDoc {
+    pub(crate) fn new(info: &crate::FenceInfo) -> Self {
+        Self {
+            syntax: Vec::new(),
+            diffs: Vec::new(),
+            kept_runs: 0,
+            kept_diffs: 0,
+            stable: 0,
+            language: info.language.clone(),
+            diff: info.diff,
+        }
+    }
+
+    pub(crate) fn render(
+        &mut self,
+        code: &str,
+        info: &crate::FenceInfo,
+        runs: &crate::highlight::LexRuns,
+    ) -> Document {
+        if code.is_empty() {
+            return empty_fence_document(info);
+        }
+        if runs.stable_byte < self.stable
+            || info.language != self.language
+            || info.diff != self.diff
+        {
+            self.syntax.clear();
+            self.diffs.clear();
+            self.kept_runs = 0;
+            self.kept_diffs = 0;
+            self.stable = 0;
+            self.language.clone_from(&info.language);
+            self.diff = info.diff;
+        }
+        let keep = if runs.is_plain() {
+            0
+        } else {
+            runs.runs
+                .iter()
+                .take_while(|(end, _)| *end <= runs.stable_byte)
+                .count()
+        };
+        if keep < self.kept_runs {
+            self.syntax.truncate(keep);
+        }
+        self.syntax.truncate(self.kept_runs.min(keep));
+        let start_run = self.syntax.len();
+        let start_byte = if start_run == 0 {
+            0
+        } else {
+            runs.runs[start_run - 1].0
+        };
+        let mut byte = start_byte;
+        let mut utf16 = crate::highlight::utf16_len(&code[..start_byte]);
+        for &(end, id) in &runs.runs[start_run..] {
+            let next = utf16 + crate::highlight::utf16_len(&code[byte..end]);
+            if next > utf16 && !runs.is_plain() {
+                let (light, dark, _, _) = crate::highlight::PALETTE[id as usize];
+                self.syntax.push(Span {
+                    start: utf16,
+                    end: next,
+                    style: Style::Syntax {
+                        light: light.into(),
+                        dark: dark.into(),
+                    },
+                });
+            }
+            byte = end;
+            utf16 = next;
+        }
+        self.kept_runs = keep.min(self.syntax.len());
+
+        let complete_lines = if info.diff {
+            code[..runs.stable_byte.min(code.len())]
+                .bytes()
+                .filter(|byte| *byte == b'\n')
+                .count()
+        } else {
+            0
+        };
+        if complete_lines < self.kept_diffs {
+            self.diffs.truncate(complete_lines);
+            self.stable = 0;
+            self.kept_diffs = 0;
+        }
+        self.diffs.truncate(self.kept_diffs);
+        if info.diff {
+            let from = self.stable.min(code.len());
+            let mut pos = crate::highlight::utf16_len(&code[..from]);
+            for line in code[from..].split_inclusive('\n') {
+                let end = pos + crate::highlight::utf16_len(line);
+                if end > pos {
+                    self.diffs.push(Span {
+                        start: pos,
+                        end,
+                        style: Style::Diff {
+                            change: crate::html::diff_kind(line).into(),
+                        },
+                    });
+                }
+                pos = end;
+            }
+        }
+        self.kept_diffs = complete_lines;
+        self.stable = runs.stable_byte.min(code.len());
+
+        let meta_end = crate::highlight::utf16_len(code);
+        let mut text = String::with_capacity(code.len() + 1);
+        text.push_str(code);
+        let block_end = if code.ends_with('\n') {
+            meta_end
+        } else {
+            text.push('\n');
+            meta_end + 1
+        };
+        let metadata = Span {
+            start: 0,
+            end: meta_end,
+            style: Style::CodeMetadata {
+                file: info.file.clone(),
+                diff: info.diff,
+            },
+        };
+        let code_block = Span {
+            start: 0,
+            end: block_end,
+            style: Style::CodeBlock {
+                language: info.language.clone(),
+            },
+        };
+        // Same order as parse_events: stable sort by (start asc, end desc),
+        // with ties keeping syntax, diff, metadata, code block insertion order.
+        let mut spans = Vec::with_capacity(self.syntax.len() + self.diffs.len() + 2);
+        let mut syntax_at = 0;
+        let mut diff_at = 0;
+        let mut metadata_used = false;
+        let mut code_used = false;
+        while syntax_at < self.syntax.len()
+            || diff_at < self.diffs.len()
+            || !metadata_used
+            || !code_used
+        {
+            let mut best: Option<(u8, usize, usize)> = None;
+            let mut consider = |kind: u8, start: usize, end: usize| {
+                let replace = match best {
+                    None => true,
+                    Some((best_kind, best_start, best_end)) => {
+                        start < best_start
+                            || (start == best_start && end > best_end)
+                            || (start == best_start && end == best_end && kind < best_kind)
+                    }
+                };
+                if replace {
+                    best = Some((kind, start, end));
+                }
+            };
+            if let Some(span) = self.syntax.get(syntax_at) {
+                consider(0, span.start, span.end);
+            }
+            if let Some(span) = self.diffs.get(diff_at) {
+                consider(1, span.start, span.end);
+            }
+            if !metadata_used {
+                consider(2, metadata.start, metadata.end);
+            }
+            if !code_used {
+                consider(3, code_block.start, code_block.end);
+            }
+            match best.expect("a fence span remains").0 {
+                0 => {
+                    spans.push(self.syntax[syntax_at].clone());
+                    syntax_at += 1;
+                }
+                1 => {
+                    spans.push(self.diffs[diff_at].clone());
+                    diff_at += 1;
+                }
+                2 => {
+                    spans.push(metadata.clone());
+                    metadata_used = true;
+                }
+                _ => {
+                    spans.push(code_block.clone());
+                    code_used = true;
+                }
+            }
+        }
+        Document {
+            version: 2,
+            text,
+            spans,
+            blocks: vec![Block {
+                start: 0,
+                end: block_end,
+                kind: "code".into(),
+            }],
+        }
+    }
+}
+
+fn empty_fence_document(info: &crate::FenceInfo) -> Document {
+    let mut spans = vec![Span {
+        start: 0,
+        end: 1,
+        style: Style::CodeMetadata {
+            file: info.file.clone(),
+            diff: info.diff,
+        },
+    }];
+    if !info.language.is_empty() {
+        // Match the parser: an empty fence is a single newline before highlighting.
+        crate::highlight::append_syntax_spans("\n", &info.language, 0, &mut spans);
+    } else {
+        crate::highlight::append_syntax_spans("\n", "", 0, &mut spans);
+    }
+    if info.diff {
+        spans.push(Span {
+            start: 0,
+            end: 1,
+            style: Style::Diff {
+                change: "context".into(),
+            },
+        });
+    }
+    spans.push(Span {
+        start: 0,
+        end: 1,
+        style: Style::CodeBlock {
+            language: info.language.clone(),
+        },
+    });
+    // append_syntax_spans pushes after metadata. Parser order is syntax, diff,
+    // metadata, code block. Rebuild in that order before the same stable sort.
+    let syntax: Vec<_> = spans
+        .iter()
+        .filter(|span| matches!(span.style, Style::Syntax { .. }))
+        .cloned()
+        .collect();
+    let mut ordered = syntax;
+    if info.diff {
+        ordered.push(Span {
+            start: 0,
+            end: 1,
+            style: Style::Diff {
+                change: "context".into(),
+            },
+        });
+    }
+    ordered.push(Span {
+        start: 0,
+        end: 1,
+        style: Style::CodeMetadata {
+            file: info.file.clone(),
+            diff: info.diff,
+        },
+    });
+    ordered.push(Span {
+        start: 0,
+        end: 1,
+        style: Style::CodeBlock {
+            language: info.language.clone(),
+        },
+    });
+    ordered.sort_by(|left, right| left.start.cmp(&right.start).then(right.end.cmp(&left.end)));
+    Document {
+        version: 2,
+        text: "\n".into(),
+        spans: ordered,
+        blocks: vec![Block {
+            start: 0,
+            end: 1,
+            kind: "code".into(),
+        }],
+    }
+}
+
+#[cfg(test)]
+mod fence_doc_tests {
+    use super::*;
+    use pulldown_cmark::{CodeBlockKind, Event, Tag, TagEnd};
+
+    fn reference(info: &str, code: &str) -> Document {
+        let prepared = crate::math::prepare("");
+        let events = [
+            Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info.into()))),
+            Event::Text(code.into()),
+            Event::End(TagEnd::CodeBlock),
+        ];
+        parse_events(&prepared, events.into_iter())
+    }
+
+    #[test]
+    fn fence_documents_match_the_parser_while_a_block_grows() {
+        let samples = [
+            ("rust", ""),
+            ("rust", "let x = 1;"),
+            ("rust", "let x = 1;\n"),
+            ("rust", "fn main() {\n    let s = \"😀\";\n}\n"),
+            ("rust", "/* comment\nstill */\nlet s = r#\"a\nb\"#;\n"),
+            ("python", "x = \"\"\"long\nstr\"\"\"\ny\n"),
+            (
+                "diff",
+                "diff --git a/f.rs b/f.rs\n--- a/f.rs\n+++ b/f.rs\n@@ -1 +1 @@\n-old\n+new\n context\n",
+            ),
+            ("tsx", "<A\n b=\"v\"/>\n<!-- c\nomment -->\n😀\n"),
+            ("sql", "SELECT name FROM t WHERE x IS NOT NULL\n"),
+            ("plain", "not highlighted\nsecond\n"),
+            ("rust file=src/lib.rs", "fn answer() -> i32 { 42 }\n"),
+        ];
+        for (info, sample) in samples {
+            let parsed = crate::fence_info(info);
+            let mut doc = FenceDoc::new(&parsed);
+            let mut built = String::new();
+            let incremental = doc.render(
+                &built,
+                &parsed,
+                &crate::highlight::lex_runs(&built, &parsed.language),
+            );
+            assert_eq!(incremental, reference(info, &built), "{info} empty");
+            for ch in sample.chars() {
+                built.push(ch);
+                let runs = crate::highlight::lex_runs(&built, &parsed.language);
+                let incremental = doc.render(&built, &parsed, &runs);
+                assert_eq!(incremental, reference(info, &built), "{info} {built:?}");
+            }
+        }
+    }
 }

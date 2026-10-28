@@ -1,5 +1,7 @@
 mod binary;
-pub use binary::{encode_document_binary, render_document_binary, BinaryError};
+pub use binary::{
+    encode_document_binary, encode_native_patch, render_document_binary, BinaryError,
+};
 // Markdown to safe HTML or native UTF-16 text ranges. No global state or UI dependency.
 mod cache;
 mod document;
@@ -13,7 +15,9 @@ mod reference;
 mod span_index;
 mod stream;
 mod stream_fence;
+mod web_patch;
 pub use span_index::SpanIndex;
+pub use web_patch::encode_web_patch;
 
 pub use document::{parse, Block, Document, Span, Style};
 pub use fence::{fence_info, FenceInfo};
@@ -65,8 +69,8 @@ fn document_from_highlight(source: &str, highlighted: &HighlightedCode) -> Docum
                 start: at,
                 end,
                 style: Style::Syntax {
-                    light: token.light.clone(),
-                    dark: token.dark.clone(),
+                    light: token.light.clone().into(),
+                    dark: token.dark.clone().into(),
                 },
             });
         }

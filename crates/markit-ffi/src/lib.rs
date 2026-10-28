@@ -192,6 +192,38 @@ pub unsafe extern "C" fn markit_stream_append(
 }
 
 /// # Safety
+/// Same requirements as [`markit_stream_append`]. The buffer is an MKNP v1 patch.
+#[no_mangle]
+pub unsafe extern "C" fn markit_stream_append_binary(
+    stream: *mut markit::StreamRenderer,
+    source: *const u8,
+    len: usize,
+    finalized: u8,
+) -> MarkitBuffer {
+    if stream.is_null() || (source.is_null() && len != 0) || len > isize::MAX as usize {
+        return MarkitBuffer::error(2);
+    }
+    catch_unwind(|| {
+        let stream = unsafe { &mut *stream };
+        let input = if len == 0 {
+            &[][..]
+        } else {
+            unsafe { slice::from_raw_parts(source, len) }
+        };
+        let Ok(delta) = str::from_utf8(input) else {
+            return MarkitBuffer::error(1);
+        };
+        if stream.source().len() + len > 8 * 1024 * 1024 {
+            return MarkitBuffer::error(2);
+        }
+        binary_result(markit::encode_native_patch(
+            &stream.append(delta, finalized != 0),
+        ))
+    })
+    .unwrap_or_else(|_| MarkitBuffer::error(3))
+}
+
+/// # Safety
 /// Free a handle returned by markit_stream_new exactly once, with no call in flight.
 #[no_mangle]
 pub unsafe extern "C" fn markit_stream_free(stream: *mut markit::StreamRenderer) {
@@ -314,7 +346,12 @@ mod tests {
                 markit_buffer_free(patch);
             }
         }
+        let binary = unsafe { markit_stream_append_binary(handle, b"\n".as_ptr(), 1, 1) };
+        assert_eq!(binary.status, 0);
+        let bytes = unsafe { slice::from_raw_parts(binary.data, binary.len) };
+        assert_eq!(&bytes[..4], b"MKNP");
         unsafe {
+            markit_buffer_free(binary);
             markit_stream_free(handle);
         }
         let error = unsafe { markit_stream_append(ptr::null_mut(), ptr::null(), 0, 1) };

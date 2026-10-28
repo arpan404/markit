@@ -132,6 +132,10 @@ Rust parity checks compare an independent binary decoder's output against
 and empty input. Separate tests cover direct code, non-palette RGB, unusual
 color strings, optional full grammars, and FFI ownership/error handling.
 
+## Native stream patch
+
+`encode_native_patch` and `markit_stream_append_binary` wrap one or more MKBP documents. Magic is `MKNP`, version 1, then little-endian `replace_from`, `finalized`, `source_bytes`, `parsed_bytes`, `block_count`, and for each block a `u32` byte length followed by that block's MKBP packet. A block with no native document returns `BinaryError::TooLarge` and C status 2. The JSON stream export is unchanged. Swift and Kotlin do not call this entry point yet.
+
 ## Benchmark
 
 Run `cargo run --release -p markit --example binary_bench`. The harness uses

@@ -6,9 +6,14 @@ fn median(mut samples: Vec<f64>) -> f64 {
 }
 fn main() {
     for lines in [5000, 50000] {
-        let source: String = (0..lines)
-            .map(|i| format!("```rust\nlet value_{i} = {i}; // 😀 comment\n```\n\n"))
-            .collect();
+        let mut source = String::new();
+        for i in 0..lines {
+            source.push_str("```rust\nlet value_");
+            source.push_str(&i.to_string());
+            source.push_str(" = ");
+            source.push_str(&i.to_string());
+            source.push_str("; // 😀 comment\n```\n\n");
+        }
         let doc = parse(&source);
         let mut builds = Vec::new();
         for _ in 0..21 {

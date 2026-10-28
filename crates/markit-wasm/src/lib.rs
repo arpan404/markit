@@ -52,6 +52,16 @@ impl MarkdownStream {
                 .expect("serializable patch"),
         )
     }
+    /// Binary patch for the web worker. See `encode_web_patch`.
+    #[wasm_bindgen(js_name = appendPacked)]
+    pub fn append_packed(&mut self, delta: &str, finalized: bool) -> Result<Vec<u8>, JsValue> {
+        if self.inner.source().len() + delta.len() > 8 * 1024 * 1024 {
+            return Err(JsValue::from_str("Document exceeds 8 MiB"));
+        }
+        Ok(markit::encode_web_patch(
+            &self.inner.append(delta, finalized),
+        ))
+    }
 }
 
 impl Default for MarkdownStream {

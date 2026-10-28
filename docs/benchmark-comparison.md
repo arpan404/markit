@@ -1,6 +1,6 @@
 # Renderer comparison benchmark
 
-These are the original baseline measurements. See [the optimization report](performance-optimization.md) for the later speed improvements and remaining gaps.
+These are the original baseline measurements. See [the optimization report](performance-optimization.md) for the later speed improvements, the Linux streaming measurements, and remaining gaps.
 
 Measured on Apple M3 Pro, macOS 27.2, Chromium 156.0.8078.4. Marked 18.0.14, Prism 1.30.0, KaTeX 0.19.0. The native model code is from Ace commit `b92d9d261848`; the Markit engine is from `0405eedf9202`.
 
@@ -86,6 +86,10 @@ These are single observations on localhost, with module loading/initialization a
 | Markit full grammar import + init + first TS highlight | 313.3 ms |
 | Markit module + init + first math | 27.4 ms |
 | KaTeX module + first math | 12.9 ms |
+
+## Streaming fences after the Linux pass
+
+The Mac streaming row above is one append after a finished history. It does not show an assistant message that is still inside a large fence. On the Linux VM, appending 400 Rust lines to an open fence cost 98.6 ms of HTML and 76.9 ms of native document construction before this pass, and 6.0 ms / 18.5 ms after, with identical patch bytes. Serializing those native patches as JSON cost 107 ms; the MKNP binary wrapper cost 35 ms and 221 KB instead of 405 KB. UIKit and JNI still take the JSON export. Details and the chat-message table are in [the optimization report](performance-optimization.md).
 
 ## Remaining measurements and work
 
