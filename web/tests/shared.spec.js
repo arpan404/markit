@@ -100,3 +100,21 @@ test('streamed code fences grow in place and match a fresh render', async ({ pag
   expect(result.same).toBe(true);
   expect(result.kept).toBeGreaterThan(100);
 });
+
+test('preloading starts the shared worker that the first renderer reuses', async ({ page }) => {
+  const spawned = [];
+  page.on('worker', worker => spawned.push(worker));
+  await page.evaluate(async () => {
+    const { preloadMarkit, terminateMarkitWorkers } = await import('/index.js');
+    terminateMarkitWorkers();
+    preloadMarkit(); preloadMarkit();
+  });
+  await expect.poll(() => spawned.length).toBe(1);
+  await page.evaluate(async () => {
+    const { MarkitRenderer } = await import('/index.js');
+    const views = [1, 2, 3].map(() => new MarkitRenderer(document.body.appendChild(document.createElement('div'))));
+    await Promise.all(views.map((view, i) => view.render(`# Preloaded ${i}\n`)));
+  });
+  await expect(page.locator('body > div.markit h1')).toHaveText(['Preloaded 0', 'Preloaded 1', 'Preloaded 2']);
+  expect(spawned).toHaveLength(1);
+});

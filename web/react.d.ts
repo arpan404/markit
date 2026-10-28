@@ -1,5 +1,6 @@
 import type { ComponentPropsWithoutRef, ElementType, ForwardRefExoticComponent, RefAttributes } from 'react';
 import type { MarkitOptions, MarkitRenderer, RenderPatch } from './index.js';
+export { preloadMarkit } from './index.js';
 
 export interface MarkitHookOptions extends MarkitOptions {
   /** Defer rendering until the element is near the viewport; plain text shows until then.

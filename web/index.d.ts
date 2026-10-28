@@ -22,3 +22,5 @@ export class MarkitRenderer {
 }
 /** Terminates the shared workers. Live renderers start a new one on their next request. */
 export function terminateMarkitWorkers(): void;
+/** Starts the shared worker and its Wasm compile ahead of the first render. */
+export function preloadMarkit(options?: Pick<MarkitOptions, 'workerURL'>): void;

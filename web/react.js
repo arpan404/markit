@@ -1,5 +1,6 @@
 import { createElement, forwardRef, memo, useEffect, useImperativeHandle, useRef } from 'react';
 import { MarkitRenderer } from './index.js';
+export { preloadMarkit } from './index.js';
 
 const OPTIONS = ['onLink', 'onReference', 'resolveImage', 'onError'];
 

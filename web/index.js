@@ -63,6 +63,10 @@ function engineFor(options) {
   if (!engine) { engine = new Engine(url, true); engines.set(url, engine); }
   return engine;
 }
+/** Starts the shared worker and Wasm compile before the first message mounts. */
+export function preloadMarkit(options = {}) {
+  if (options.worker !== 'dedicated') engineFor(options).ensure();
+}
 /** Terminates shared workers. Live renderers start a new one on their next request. */
 export function terminateMarkitWorkers() {
   for (const engine of engines.values()) engine.terminate();
