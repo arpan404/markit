@@ -118,3 +118,16 @@ test('preloading starts the shared worker that the first renderer reuses', async
   await expect(page.locator('body > div.markit h1')).toHaveText(['Preloaded 0', 'Preloaded 1', 'Preloaded 2']);
   expect(spawned).toHaveLength(1);
 });
+
+test('importing the module starts the default shared worker, unless the page opts out', async ({ page }) => {
+  for (const optOut of [false, true]) {
+    await page.goto('/no-such-page');
+    const workers = await page.evaluate(async optOut => {
+      if (optOut) globalThis.markitPreload = false;
+      await import('/index.js');
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }, optOut).then(() => page.workers().length);
+    expect(workers).toBe(optOut ? 0 : 1);
+  }
+});
+

@@ -1,6 +1,5 @@
 import { unpackHighlight } from './highlight.js';
 import { prepareCode, codeLines, firstChangedLine } from './code-lines.js';
-import { GpuCodeRenderer } from './gpu-code.js';
 
 /** One Web Worker and Wasm instance serves every renderer created with the
  * same worker URL. Each renderer owns a stream inside it; requests are
@@ -67,6 +66,15 @@ function engineFor(options) {
 export function preloadMarkit(options = {}) {
   if (options.worker !== 'dedicated') engineFor(options).ensure();
 }
+// Start the default shared worker as soon as this module has loaded (after the
+// current task, so a page can first call `preloadMarkit` with its own options).
+// Then the first message does not wait for the worker, the Wasm compile and the
+// math font. Skipped when the page already started a worker, or when
+// `globalThis.markitPreload === false` before import (for example when every
+// renderer uses a custom `workerURL`).
+if (typeof window !== 'undefined' && typeof Worker === 'function') {
+  setTimeout(() => { if (!engines.size && globalThis.markitPreload !== false) preloadMarkit(); }, 0);
+}
 /** Terminates shared workers. Live renderers start a new one on their next request. */
 export function terminateMarkitWorkers() {
   for (const engine of engines.values()) engine.terminate();
@@ -80,7 +88,7 @@ export class MarkitRenderer {
   #running = false; #queued; #destroyed = false; #options; #code = new WeakMap();
   #html = []; #dirty = Infinity; #payloads = new WeakMap(); #lines = new WeakMap();
   #urls = new Map(); #imageJobs = new Map(); #listeners = new AbortController();
-  #gpu = new GpuCodeRenderer(); #gpuViews = new Map();
+  #gpu; #gpuViews = new Map();
   constructor(element, options = {}) {
     this.#element = element;
     this.#options = options;
@@ -243,9 +251,11 @@ export class MarkitRenderer {
     // Automatic GPU selection remains disabled until rendering benchmarks show
     // a benefit. Hosts can explicitly request it for large source views.
     if (this.#options.codeRendering === 'webgpu') {
-      queueMicrotask(() => {
+      // The WebGPU renderer is only fetched by hosts that request it.
+      this.#gpu ??= import('./gpu-code.js').then(({ GpuCodeRenderer }) => new GpuCodeRenderer());
+      this.#gpu.then(gpu => {
         if (this.#destroyed || !pre.isConnected) return;
-        this.#gpu.attach(pre, Array.isArray(rows) ? rows : rows.slice(0, rows.length), next => { rows = next; update(); }, () => this.#gpuViews.delete(pre)).then(view => {
+        gpu.attach(pre, Array.isArray(rows) ? rows : rows.slice(0, rows.length), next => { rows = next; update(); }, () => this.#gpuViews.delete(pre)).then(view => {
           if (!view || view.disposed) return;
           if (this.#destroyed || !pre.isConnected) view.destroy();
           else this.#gpuViews.set(pre,view);
@@ -291,7 +301,7 @@ export class MarkitRenderer {
     this.#destroyed = true; this.#listeners.abort();
     this.#engine.release(this, this.#stream);
     if (!this.#engine.shared) this.#engine.terminate();
-    this.#gpu.destroy(); this.#gpuViews.clear();
+    this.#gpu?.then(gpu => gpu.destroy()); this.#gpuViews.clear();
     this.#queued?.reject(new Error('Renderer disposed')); this.#queued = undefined;
     for (const job of this.#imageJobs.values()) job.abort(); this.#imageJobs.clear();
     for (const url of this.#urls.values()) URL.revokeObjectURL(url); this.#urls.clear();

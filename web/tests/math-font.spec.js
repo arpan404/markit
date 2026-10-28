@@ -52,5 +52,5 @@ test('the worker loads the full math font once, only when a formula needs it', a
   expect(fonts).toHaveLength(1);
   // Every formula drew; none fell back to its TeX source.
   await expect(page.locator('body > div.markit .mk-math svg')).toHaveCount(4 + 1 + 4);
-  await expect(page.locator('body > div.markit')).not.toContainText('mathfrak');
+  await expect(page.locator('body > div.markit', { hasText: 'mathfrak' })).toHaveCount(0);
 });

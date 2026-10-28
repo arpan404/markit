@@ -2,6 +2,15 @@ import init, { MarkdownStream, highlightCodePacked, highlightGrammar, mathFontMi
 
 let memory;
 const ready = init().then(exports => { memory = exports.memory; });
+// Messages that arrived during init render first; then, if no formula has
+// loaded the math font yet, one throwaway formula parses it and warms the
+// math code, so the first formula a reader sees does not pay for that.
+ready.then(() => setTimeout(() => {
+  if (streams.size) return;
+  const warm = MarkdownStream.web();
+  warm.appendPacked('$x^2$', true);
+  warm.free();
+}, 0), () => {});
 /** Renderer streams multiplexed over this worker: id -> { stream, previous }. */
 const streams = new Map();
 /** Diagnostics for tests and benchmarks: live streams and Wasm linear memory. */
