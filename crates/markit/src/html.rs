@@ -74,10 +74,31 @@ pub(crate) fn render_html_code(
     output.clear();
     output.reserve(source.len());
     let prepared = crate::math::prepare(source);
-    let mut input = super::parser_with_refs(&prepared.source, references)
+    let mut events = super::parser_with_refs(&prepared.source, references);
+    write_events(&prepared, &mut events, output, code_renderer);
+}
+
+pub(crate) fn render_events<'a>(
+    prepared: &crate::math::Prepared<'_>,
+    mut events: impl Iterator<Item = Event<'a>>,
+    output: &mut String,
+) {
+    output.clear();
+    write_events(prepared, &mut events, output, &mut render_code);
+}
+
+/// The one HTML event pipeline, shared by whole-document and stream renders.
+/// Trait objects keep a single copy of it in the Wasm module.
+fn write_events<'a>(
+    prepared: &crate::math::Prepared<'_>,
+    events: &mut dyn Iterator<Item = Event<'a>>,
+    output: &mut String,
+    code_renderer: &mut dyn FnMut(&str, &crate::FenceInfo) -> String,
+) {
+    let mut input = events
         .filter(|event| !matches!(event, Event::InlineHtml(text) if prepared.is_separator(text)));
     let mut link_depth = 0usize;
-    let events = std::iter::from_fn(|| {
+    let mut events = std::iter::from_fn(|| {
         let event = input.next()?;
         Some(match event {
             Event::Html(text) | Event::InlineHtml(text) => Event::Text(text),
@@ -195,137 +216,8 @@ pub(crate) fn render_html_code(
             other => other,
         })
     });
-    html::push_html(output, events);
-}
-
-pub(crate) fn render_events<'a>(
-    prepared: &crate::math::Prepared<'_>,
-    events: impl Iterator<Item = Event<'a>>,
-    output: &mut String,
-) {
-    output.clear();
-    let mut input = events
-        .filter(|event| !matches!(event, Event::InlineHtml(text) if prepared.is_separator(text)));
-    let mut link_depth = 0usize;
-    let events = std::iter::from_fn(|| {
-        let event = input.next()?;
-        Some(match event {
-            Event::Html(text) | Event::InlineHtml(text) => Event::Text(text),
-            Event::Start(Tag::CodeBlock(kind)) => {
-                let info = match kind {
-                    CodeBlockKind::Fenced(info) => crate::fence_info(&info),
-                    CodeBlockKind::Indented => crate::FenceInfo::default(),
-                };
-                let mut code = String::new();
-                for event in input.by_ref() {
-                    match event {
-                        Event::End(pulldown_cmark::TagEnd::CodeBlock) => break,
-                        Event::Text(text) => code.push_str(&text),
-                        _ => {}
-                    }
-                }
-                Event::Html(render_code(&code, &info).into())
-            }
-            Event::Code(code) => {
-                if let Some(formula) = prepared.formula(&code) {
-                    if let Some(visual) = crate::math::render_svg(&formula.tex, formula.display) {
-                        Event::Html(format!("<span class=\"mk-math{}\" role=\"math\" aria-label=\"{}\" data-tex=\"{}\">{}</span>",
-                            if formula.display { " mk-display" } else { "" }, escape(&formula.tex), escape(&formula.raw), visual.svg).into())
-                    } else {
-                        Event::Text(formula.raw.clone().into())
-                    }
-                } else if let Some(reference) = crate::reference::inline_file(&code) {
-                    Event::Html(format!("<code role=\"link\" tabindex=\"0\" data-markit-reference=\"{}\" data-reference-kind=\"file\">{}</code>", escape(&reference.target), escape(&code)).into())
-                } else {
-                    Event::Code(code)
-                }
-            }
-            Event::Start(Tag::Image { dest_url, .. }) => {
-                let mut alt = String::new();
-                let mut depth = 1;
-                for event in input.by_ref() {
-                    match event {
-                        Event::Start(Tag::Image { .. }) => depth += 1,
-                        Event::End(pulldown_cmark::TagEnd::Image) => {
-                            depth -= 1;
-                            if depth == 0 {
-                                break;
-                            }
-                        }
-                        Event::Text(text) | Event::Code(text) => alt.push_str(&text),
-                        Event::SoftBreak | Event::HardBreak => alt.push(' '),
-                        _ => {}
-                    }
-                }
-                let url = if crate::is_safe_url(&dest_url) {
-                    dest_url.trim()
-                } else {
-                    ""
-                };
-                Event::Html(
-                    format!(
-                        "<img data-markit-src=\"{}\" alt=\"{}\" loading=\"lazy\">",
-                        escape(url),
-                        escape(&alt)
-                    )
-                    .into(),
-                )
-            }
-            Event::Start(Tag::Link {
-                link_type,
-                dest_url,
-                title,
-                id,
-            }) => {
-                link_depth += 1;
-                if let Some(reference) = crate::reference_target(&dest_url) {
-                    let href = if crate::is_safe_url(&dest_url) {
-                        format!(" href=\"{}\"", escape(&dest_url))
-                    } else {
-                        String::new()
-                    };
-                    return Some(Event::Html(format!("<a{href} role=\"link\" tabindex=\"0\" data-markit-reference=\"{}\" data-reference-kind=\"{}\">", escape(&reference.target), escape(&reference.kind)).into()));
-                }
-                let dest_url = if super::is_safe_url(&dest_url) {
-                    CowStr::from(dest_url.trim().to_owned())
-                } else {
-                    CowStr::Borrowed("")
-                };
-                Event::Start(Tag::Link {
-                    link_type,
-                    dest_url,
-                    title,
-                    id,
-                })
-            }
-            Event::End(pulldown_cmark::TagEnd::Link) => {
-                link_depth = link_depth.saturating_sub(1);
-                Event::End(pulldown_cmark::TagEnd::Link)
-            }
-            Event::Text(text) if link_depth == 0 => {
-                let links = bare_links(&text);
-                if links.is_empty() {
-                    Event::Text(text)
-                } else {
-                    let mut html = String::new();
-                    let mut at = 0;
-                    for (range, url) in links {
-                        html.push_str(&escape(&text[at..range.start]));
-                        html.push_str(&format!(
-                            "<a href=\"{}\">{}</a>",
-                            escape(&url),
-                            escape(&text[range.clone()])
-                        ));
-                        at = range.end;
-                    }
-                    html.push_str(&escape(&text[at..]));
-                    Event::Html(html.into())
-                }
-            }
-            other => other,
-        })
-    });
-    html::push_html(output, events);
+    // One writer instantiation for every event source keeps the Wasm smaller.
+    html::push_html(output, &mut events as &mut dyn Iterator<Item = Event<'_>>);
 }
 
 pub(crate) fn diff_kind(part: &str) -> &'static str {

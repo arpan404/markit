@@ -374,7 +374,9 @@ pub(crate) fn prepare(source: &str) -> Prepared<'_> {
         prepared.prefix.push('X');
     }
     let mut protected = Vec::new();
-    let parser = crate::parser(source);
+    // The same parser type as the renderers, so Wasm links one instance of it.
+    let no_references = crate::References::new();
+    let parser = crate::parser_with_refs(source, &no_references);
     protected.extend(
         parser
             .reference_definitions()

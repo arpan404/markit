@@ -94,13 +94,6 @@ fn document_from_highlight(source: &str, highlighted: &HighlightedCode) -> Docum
 
 use pulldown_cmark::{Options, Parser};
 
-fn parser(source: &str) -> Parser<'_> {
-    Parser::new_ext(
-        source,
-        Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS,
-    )
-}
-
 type References = std::collections::HashMap<unicase::UniCase<String>, (String, String)>;
 fn reference_key(label: &str) -> unicase::UniCase<String> {
     unicase::UniCase::unicode(label.split_whitespace().collect::<Vec<_>>().join(" "))
