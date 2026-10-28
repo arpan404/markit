@@ -10,6 +10,7 @@ mod math;
 mod reference;
 mod span_index;
 mod stream;
+mod stream_fence;
 pub use span_index::SpanIndex;
 
 pub use document::{parse, Block, Document, Span, Style};

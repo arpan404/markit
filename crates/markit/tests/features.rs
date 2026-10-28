@@ -224,7 +224,7 @@ fn streaming_final_output_matches_whole_document_at_every_character_boundary() {
         "Before\n\n$$\n\nx^2\n\n$$\n\nAfter\n",
     ] {
         let mut stream = StreamRenderer::new();
-        let mut blocks: Vec<RenderedBlock> = Vec::new();
+        let mut blocks: Vec<std::sync::Arc<RenderedBlock>> = Vec::new();
         for c in source.chars() {
             let patch = stream.append(&c.to_string(), false);
             blocks.truncate(patch.replace_from);

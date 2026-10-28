@@ -17,11 +17,22 @@ pub struct HighlightedCode {
     pub tokens: Vec<CodeToken>,
 }
 thread_local! {
+    static APPEND_SCAN: RefCell<Option<(String, Arc<LexedCode>)>> = const { RefCell::new(None) };
     static CACHE: RefCell<crate::cache::Cache<(String, String), Arc<LexedCode>>> = RefCell::new(crate::cache::Cache::new(4 * 1024 * 1024));
 }
 // Byte offsets share the caller's source. Materialize owned tokens only for
 // callers of the original token API; native spans and Wasm ranges skip them.
+#[derive(Clone, Copy, Default)]
+struct Checkpoint {
+    at: usize,
+    in_tag: bool,
+    runs: usize,
+    pending_start: usize,
+    pending_tone: Option<Tone>,
+}
+
 struct LexedCode {
+    checkpoint: Checkpoint,
     language: String,
     plain: bool,
     runs: Vec<(usize, Tone)>,
@@ -452,6 +463,10 @@ fn keyword(word: &str, language: &str) -> bool {
     }
 }
 fn scan(code: &str, language: &str) -> LexedCode {
+    scan_from(code, language, None)
+}
+
+fn scan_from(code: &str, language: &str, previous: Option<&LexedCode>) -> LexedCode {
     let supported = [
         "typescript",
         "tsx",
@@ -479,6 +494,7 @@ fn scan(code: &str, language: &str) -> LexedCode {
     ]
     .contains(&language);
     let plain = || LexedCode {
+        checkpoint: Checkpoint::default(),
         language: language.into(),
         plain: true,
         runs: vec![(code.len(), Tone::Plain)],
@@ -488,15 +504,29 @@ fn scan(code: &str, language: &str) -> LexedCode {
         return plain();
     }
     let bytes = code.as_bytes();
-    let mut at = 0;
-    let mut runs = Vec::new();
-    let mut in_tag = false;
+    let mut checkpoint = previous.map_or(Checkpoint::default(), |old| old.checkpoint);
+    let mut at = checkpoint.at;
+    let mut runs = previous.map_or_else(Vec::new, |old| old.runs[..checkpoint.runs].to_vec());
+    let mut in_tag = checkpoint.in_tag;
+    let line_start = code.rfind('\n').map_or(0, |at| at + 1);
+    let mut future_dependent = false;
     let hash_comment = matches!(language, "python" | "bash" | "yaml");
     let slash_comment = !matches!(language, "python" | "bash" | "yaml" | "html" | "markdown");
     let markup = matches!(language, "html" | "jsx" | "tsx");
-    let mut pending_start = 0;
-    let mut pending_tone = Tone::Plain;
+    let mut pending_start = checkpoint.pending_start;
+    let mut pending_tone = checkpoint.pending_tone.unwrap_or(Tone::Plain);
     while at < bytes.len() {
+        // A token crossing the last line (string, comment, raw delimiter) is
+        // rechecked from its start. Earlier runs and markup state stay valid.
+        if at <= line_start && !future_dependent {
+            checkpoint = Checkpoint {
+                at,
+                in_tag,
+                runs: runs.len(),
+                pending_start,
+                pending_tone: Some(pending_tone),
+            };
+        }
         let start = at;
         let byte = bytes[at];
         let mut tone = Tone::Plain;
@@ -597,6 +627,7 @@ fn scan(code: &str, language: &str) -> LexedCode {
             }
             let word = &code[start..at];
             let after = code[at..].trim_start();
+            future_dependent |= after.is_empty();
             tone = if keyword(word, language) {
                 Tone::Keyword
             } else if in_tag && markup {
@@ -651,6 +682,7 @@ fn scan(code: &str, language: &str) -> LexedCode {
         return plain();
     }
     LexedCode {
+        checkpoint,
         language: language.into(),
         plain: false,
         runs,
@@ -668,7 +700,18 @@ fn lex(code: &str, language: &str) -> Arc<LexedCode> {
     }) {
         return cached;
     }
-    let result = Arc::new(scan(code, &language));
+    let result = APPEND_SCAN.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        let previous = slot.as_ref().filter(|(source, old)| {
+            old.language == language && !old.plain && code.starts_with(source.as_str())
+        });
+        let result = Arc::new(match previous {
+            Some((_, old)) => scan_from(code, &language, Some(old)),
+            None => scan(code, &language),
+        });
+        *slot = (code.len() <= 1024 * 1024).then(|| (code.to_owned(), result.clone()));
+        result
+    });
     // Reserve the budget for lazy token materialization as well as compact runs.
     let weight = language.len() + code.len() * 2 + result.runs.len() * 128;
     CACHE.with(|cache| {
