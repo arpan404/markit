@@ -1,5 +1,5 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
-use latex_rust::{BoxContent, Dim, MathBox, MathFont, MathStyle, PngOptions, SvgOptions};
+use latex_rust::{BoxContent, Dim, MathBox, MathFont, MathStyle, SvgOptions};
 use serde::{Deserialize, Serialize};
 use std::{
     borrow::Cow,
@@ -193,12 +193,7 @@ fn derive_visual(tree: &MathBox, display: bool, output: MathOutput) -> Option<Ar
         String::new()
     };
     let (png, width, height) = if output != MathOutput::Svg {
-        let png_options = PngOptions {
-            font_size_pt: Dim::from_i64(16),
-            display,
-            ..PngOptions::new()
-        };
-        let png = latex_rust::render_png(tree, font, &png_options).ok()?;
+        let png = rasterize(tree, font)?;
         let width = u32::from_be_bytes(png.get(16..20)?.try_into().ok()?);
         let height = u32::from_be_bytes(png.get(20..24)?.try_into().ok()?);
         (STANDARD.encode(png), width, height)
@@ -212,6 +207,19 @@ fn derive_visual(tree: &MathBox, display: bool, output: MathOutput) -> Option<Ar
         height,
     });
     Some(visual)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn rasterize(tree: &MathBox, font: &MathFont) -> Option<Vec<u8>> {
+    crate::math_raster::render_png(tree, font, 16).ok()
+}
+
+/// Wasm renders math as SVG only and does not link a rasterizer. A native
+/// document built in Wasm keeps math as source text, the same fallback used
+/// for any formula that cannot be drawn.
+#[cfg(target_arch = "wasm32")]
+fn rasterize(_: &MathBox, _: &MathFont) -> Option<Vec<u8>> {
+    None
 }
 
 pub(crate) struct Formula {
