@@ -45,6 +45,15 @@ pub(crate) fn render_html_with_refs(
     output: &mut String,
     references: &crate::References,
 ) {
+    render_html_code(source, output, references, &mut render_code);
+}
+
+pub(crate) fn render_html_code(
+    source: &str,
+    output: &mut String,
+    references: &crate::References,
+    code_renderer: &mut impl FnMut(&str, &crate::FenceInfo) -> String,
+) {
     output.clear();
     output.reserve(source.len());
     let prepared = crate::math::prepare(source);
@@ -68,7 +77,7 @@ pub(crate) fn render_html_with_refs(
                         _ => {}
                     }
                 }
-                Event::Html(render_code(&code, &info).into())
+                Event::Html(code_renderer(&code, &info).into())
             }
             Event::Code(code) => {
                 if let Some(formula) = prepared.formula(&code) {

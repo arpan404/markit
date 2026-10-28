@@ -2,8 +2,17 @@ use crate::{Document, References};
 use serde::{Deserialize, Serialize};
 use std::ops::Range;
 
+/// Code payload for deferred web line rendering. No token objects or HTML rows.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WebCode {
+    pub source: String,
+    pub info: crate::FenceInfo,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RenderedBlock {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub codes: Vec<WebCode>,
     pub html: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub document: Option<Document>,
@@ -32,6 +41,7 @@ pub struct StreamRenderer {
     references: References,
     html_only: bool,
     native_only: bool,
+    web: bool,
 }
 
 impl StreamRenderer {
@@ -40,6 +50,13 @@ impl StreamRenderer {
     }
     pub fn new_html() -> Self {
         Self {
+            html_only: true,
+            ..Self::default()
+        }
+    }
+    pub fn new_web() -> Self {
+        Self {
+            web: true,
             html_only: true,
             ..Self::default()
         }
@@ -53,6 +70,7 @@ impl StreamRenderer {
     pub fn reset(&mut self) {
         *self = Self {
             html_only: self.html_only,
+            web: self.web,
             native_only: self.native_only,
             ..Self::default()
         };
@@ -116,12 +134,31 @@ impl StreamRenderer {
         for range in &ranges {
             let source = &tail[range.clone()];
             let mut html = String::new();
-            if !self.native_only {
+            let mut codes = Vec::new();
+            if self.web {
+                crate::html::render_html_code(
+                    source,
+                    &mut html,
+                    &self.references,
+                    &mut |source, info| {
+                        let index = codes.len();
+                        codes.push(WebCode {
+                            source: source.into(),
+                            info: info.clone(),
+                        });
+                        format!("<section class=\"mk-codeblock\" data-markit-code=\"{index}\"></section>\n")
+                    },
+                );
+            } else if !self.native_only {
                 crate::html::render_html_with_refs(source, &mut html, &self.references);
             }
             let document = (!self.html_only)
                 .then(|| crate::document::parse_with_refs(source, &self.references));
-            next.push(RenderedBlock { html, document });
+            next.push(RenderedBlock {
+                html,
+                document,
+                codes,
+            });
         }
         let common = self
             .blocks

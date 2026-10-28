@@ -8,7 +8,9 @@ mod highlight;
 mod html;
 mod math;
 mod reference;
+mod span_index;
 mod stream;
+pub use span_index::SpanIndex;
 
 pub use document::{parse, Block, Document, Span, Style};
 pub use fence::{fence_info, FenceInfo};
@@ -31,7 +33,7 @@ pub fn highlight_grammar(source: &str, language: &str) -> Option<std::sync::Arc<
 pub use html::{render_html, render_html_into};
 pub use math::{render_math, MathVisual};
 pub use reference::{reference_target, Reference};
-pub use stream::{RenderPatch, RenderedBlock, StreamRenderer};
+pub use stream::{RenderPatch, RenderedBlock, StreamRenderer, WebCode};
 
 /// Highlight a complete source file without wrapping it in a Markdown fence.
 pub fn code_document(source: &str, language: &str) -> Document {

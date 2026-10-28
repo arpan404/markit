@@ -1,3 +1,5 @@
+import { unpackHighlight } from './highlight.js';
+import { prepareCode } from './code-lines.js';
 import { GpuCodeRenderer } from './gpu-code.js';
 
 /** One in-flight render and one queued replacement keep typing ahead of parsing.
@@ -75,11 +77,14 @@ export class MarkitRenderer {
         this.#apply({ replace_from: this.#dirty, blocks: this.#html.slice(this.#dirty) });
         this.#dirty = Infinity;
       }
-      job.resolve({ ...patch, superseded: job.revision !== this.#revision });
+      job.resolve({ ...patch, blocks: patch.blocks.map(block => block.html), superseded: job.revision !== this.#revision });
     } catch (error) { job.reject(error); }
     finally { this.#running = false; this.#drain(); }
   }
-  highlight(source, language, { grammar = false } = {}) { return this.#rpc('highlight', { source, language, grammar }); }
+  async highlight(source, language, { grammar = false } = {}) {
+    const result = await this.#rpc('highlight', { source, language, grammar });
+    return grammar ? result : unpackHighlight(source, result);
+  }
   #apply(patch) {
     if (this.#destroyed) return;
     while (this.#element.children.length > patch.replace_from) {
@@ -95,11 +100,11 @@ export class MarkitRenderer {
       block.remove();
     }
     const fragment = document.createDocumentFragment();
-    for (const html of patch.blocks) {
+    for (const payload of patch.blocks) {
       const block = document.createElement('div');
       block.className = 'mk-block';
-      block.innerHTML = html;
-      for (const section of block.querySelectorAll('.mk-codeblock')) this.#prepareCode(section);
+      block.innerHTML = payload.html;
+      for (const section of block.querySelectorAll('.mk-codeblock')) this.#prepareCode(section, payload.codes?.[Number(section.dataset.markitCode)]);
       fragment.append(block);
     }
     this.#element.append(fragment);
@@ -107,18 +112,19 @@ export class MarkitRenderer {
       for (const image of this.#element.querySelectorAll('img[data-markit-src]:not([data-requested])')) this.#resolveImage(image);
     }
   }
-  #prepareCode(section) {
+  #prepareCode(section, payload) {
+    let rows = payload ? prepareCode(section, payload) : null;
     const code = section.querySelector('code');
-    this.#code.set(section, code.textContent);
-    let rows = [...code.children];
-    if (rows.length <= 400) return;
+    this.#code.set(section, payload?.source ?? code.textContent);
+    rows ??= [...code.children];
+    if (rows.length <= 400) { code.replaceChildren(...rows.slice(0, rows.length)); return; }
     const pre = section.querySelector('pre');
     pre.dataset.markitBackend = 'dom';
     pre.classList.add('mk-virtual-code');
     const lineHeight = 22;
     const top = document.createElement('span'); const bottom = document.createElement('span');
     top.className = bottom.className = 'mk-spacer';
-    code.style.minWidth = `${Math.min(4096, Math.max(...rows.map(row => row.textContent.length)) + 7)}ch`;
+    code.style.minWidth = `${Math.min(4096, (rows.width ?? Math.max(...rows.map(row => row.textContent.length))) + 7)}ch`;
     const update = () => {
       const first = Math.max(0, Math.floor(pre.scrollTop / lineHeight) - 8);
       const last = Math.min(rows.length, first + Math.ceil((pre.clientHeight || 320) / lineHeight) + 16);
@@ -131,7 +137,7 @@ export class MarkitRenderer {
     if (this.#options.codeRendering === 'webgpu') {
       queueMicrotask(() => {
         if (this.#destroyed || !pre.isConnected) return;
-        this.#gpu.attach(pre, rows, next => { rows = next; update(); }, () => this.#gpuViews.delete(pre)).then(view => {
+        this.#gpu.attach(pre, Array.isArray(rows) ? rows : rows.slice(0, rows.length), next => { rows = next; update(); }, () => this.#gpuViews.delete(pre)).then(view => {
           if (!view || view.disposed) return;
           if (this.#destroyed || !pre.isConnected) view.destroy();
           else this.#gpuViews.set(pre,view);

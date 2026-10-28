@@ -34,6 +34,12 @@ impl MarkdownStream {
             inner: markit::StreamRenderer::new_html(),
         }
     }
+    #[wasm_bindgen(js_name = web)]
+    pub fn web() -> Self {
+        Self {
+            inner: markit::StreamRenderer::new_web(),
+        }
+    }
     pub fn reset(&mut self) {
         self.inner.reset();
     }
