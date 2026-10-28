@@ -134,7 +134,7 @@ Markit's transfer is made of five files:
 - a shared 0.4 KB chunk;
 - the Wasm module (418.0 KB, rustc 1.99.1), about 153 KB of which is the embedded core math font.
 
-Some formulas need a glyph outside the core font, for example `\\mathfrak`, `\\mathscr`, lowercase `\\mathbb`, rare symbols and accented text. The first such formula makes the worker fetch the full STIX Two Math once (644 KB gzip) and re-render. That fetch is not in these numbers, and no fixture triggers it.
+Some formulas need a glyph outside the core font, for example `\mathfrak`, `\mathscr`, lowercase `\mathbb`, rare symbols and accented text. The first such formula makes the worker fetch the full STIX Two Math once (644 KB gzip) and re-render. That fetch is not in these numbers, and no fixture triggers it.
 
 What changed since the previous table (cold 44 ms, 50 messages 92 ms, streaming at 4x 781 ms, transfer 1.21 MB):
 
