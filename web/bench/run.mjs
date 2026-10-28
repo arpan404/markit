@@ -32,9 +32,17 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const base = `http://127.0.0.1:${server.address().port}`;
 const gzipSizes = new Map();
 const gz = file => { if (!gzipSizes.has(file)) gzipSizes.set(file, zlib.gzipSync(fs.readFileSync(file), { level: 9 }).length); return gzipSizes.get(file); };
+const brotliSizes = new Map();
+const br = file => { if (!brotliSizes.has(file)) brotliSizes.set(file, zlib.brotliCompressSync(fs.readFileSync(file), { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 11 } }).length); return brotliSizes.get(file); };
 function transfer(files) {
   const unique = [...new Set(files)].filter(f => !f.endsWith('.html'));
-  return { files: unique.length, raw: unique.reduce((s, f) => s + fs.statSync(f).size, 0), gzip: unique.reduce((s, f) => s + gz(f), 0) };
+  return {
+    files: unique.length,
+    raw: unique.reduce((s, f) => s + fs.statSync(f).size, 0),
+    gzip: unique.reduce((s, f) => s + gz(f), 0),
+    brotli: unique.reduce((s, f) => s + br(f), 0),
+    byFile: Object.fromEntries(unique.map(f => [path.relative(webRoot, f), gz(f)])),
+  };
 }
 
 const browser = await chromium.launch({ args: ['--enable-precise-memory-info', '--js-flags=--expose-gc'] });
@@ -133,7 +141,9 @@ const median = values => { const v = values.filter(x => typeof x === 'number').s
 results.medians = {};
 for (const [key, samples] of Object.entries(results.samples)) {
   results.medians[key] = {};
-  for (const field of Object.keys(samples[0])) results.medians[key][field] = median(samples.map(s => s[field]));
+  for (const field of Object.keys(samples[0])) {
+    results.medians[key][field] = field === 'byFile' ? samples[0][field] : median(samples.map(s => s[field]));
+  }
 }
 fs.mkdirSync(path.dirname(out), { recursive: true });
 fs.writeFileSync(out, JSON.stringify(results, null, 2));
