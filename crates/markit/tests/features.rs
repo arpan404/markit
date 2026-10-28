@@ -280,7 +280,7 @@ fn compact_highlighting_matches_owned_tokens_and_native_utf16_spans() {
         let language_units: Vec<_> = packed[3..language_end].iter().map(|&n| n as u16).collect();
         assert_eq!(String::from_utf16(&language_units).unwrap(), code.language);
         let mut offset = 0;
-        let runs: Vec<_> = packed[language_end..].chunks_exact(3).collect();
+        let runs: Vec<_> = packed[language_end..].as_chunks::<3>().0.iter().collect();
         assert_eq!(runs.len(), code.tokens.len());
         for (run, token) in runs.iter().zip(&code.tokens) {
             offset += token.text.encode_utf16().count();

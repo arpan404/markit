@@ -61,7 +61,7 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
       - run: sdkmanager "ndk;27.1.12297006" "platforms;android-36" "build-tools;35.0.0"
       - run: ./scripts/build-android.sh
       - run: platforms/android/gradlew -p platforms/android :markit:assembleDebug :markit:assembleDebugAndroidTest :demo:assembleDebug --no-daemon
