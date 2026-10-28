@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Builds the core STIX Two Math font that the web package ships.
 
-Every table except CFF is copied unchanged, so glyph ids, advances, kerning,
-MATH constants, variants, and GSUB alternates are identical to the full font.
+Glyph ids, advances, cmap, MATH constants, variants, kerning, and ssty
+alternates are identical to the full font. Only CFF changes, GSUB keeps only
+its ssty feature, and every left side bearing becomes 0 (latex-rust reads
+neither the other GSUB features nor side bearings).
 Glyphs not listed in math-core-glyphs.txt keep their exact bounding box but
 lose their outline: the outline becomes one line between the box corners.
 Hints and glyph names are dropped: the CFF is CID-keyed.
@@ -74,18 +76,18 @@ for gid, name in enumerate(order):
         program = [x0, y0, 'rmoveto', x1 - x0, y1 - y0, 'rlineto', 'endchar']
     strings[name] = T2CharString(program=program, private=private, globalSubrs=cff.GlobalSubrs)
 # Hints do not move outline points, and ttf-parser ignores them. The subsetter
-# drops hints and unused subroutines; only its CFF table is kept, so the other
+# drops hints and inlines subroutines (which compresses better); only its CFF table is kept, so the other
 # tables stay byte-identical. (CFF2 would also drop names, but ttf-parser does
 # not close the last contour of a CFF2 glyph, which would change SVG paths.)
 buffer = io.BytesIO()
 font.save(buffer)
 stripped = TTFont(io.BytesIO(buffer.getvalue()))
 options = subset.Options(retain_gids=True, hinting=False, notdef_outline=True, glyph_names=True,
-                         layout_features=['*'], name_IDs=['*'], drop_tables=[], layout_closure=False)
+                         layout_features=['*'], name_IDs=['*'], drop_tables=[], layout_closure=False,
+                         desubroutinize=True)
 subsetter = subset.Subsetter(options)
 subsetter.populate(gids=range(len(order)))
 subsetter.subset(stripped)
-stripped['CFF '].cff.remove_unused_subroutines()
 # CID-keyed CFF stores no glyph names. Its charset is one range of CIDs.
 top = stripped['CFF '].cff.topDictIndex[0]
 cids = ['.notdef'] + ['cid%05d' % gid for gid in range(1, len(order))]
@@ -112,7 +114,8 @@ stripped.setGlyphOrder(cids)
 stripped['CFF '].cff.strings = IndexedStrings()
 cff_bytes = stripped['CFF '].compile(stripped)
 
-font = TTFont(full)
+# No bounding box recalculation: hhea, head, and OS/2 stay as they were.
+font = TTFont(full, recalcBBoxes=False)
 # Tables latex-rust never reads. Without a name table the cut also carries no
 # Reserved Font Name (OFL 1.1); the license ships in licenses/.
 for tag in ('GPOS', 'GDEF', 'DSIG', 'post', 'name'):
@@ -120,6 +123,27 @@ for tag in ('GPOS', 'GDEF', 'DSIG', 'post', 'name'):
 # One full Unicode subtable maps what the five original subtables map. An empty
 # format 4 subtable ahead of it keeps the one difference: its terminating
 # segment maps U+FFFF to glyph 0, as the original BMP subtables do.
+# latex-rust reads only the ssty feature of GSUB and never a left side bearing.
+# The rest of GSUB goes; every bearing becomes 0. Both only help compression.
+gsub = font['GSUB'].table
+ssty = [record for record in gsub.FeatureList.FeatureRecord if record.FeatureTag == 'ssty'][:1]
+used = sorted({index for record in ssty for index in record.Feature.LookupListIndex})
+gsub.LookupList.Lookup = [gsub.LookupList.Lookup[index] for index in used]
+gsub.LookupList.LookupCount = len(used)
+for record in ssty:
+    record.Feature.LookupListIndex = [used.index(index) for index in record.Feature.LookupListIndex]
+    record.Feature.LookupCount = len(record.Feature.LookupListIndex)
+gsub.FeatureList.FeatureRecord = ssty
+gsub.FeatureList.FeatureCount = len(ssty)
+for script in gsub.ScriptList.ScriptRecord:
+    for lang in [script.Script.DefaultLangSys] + [r.LangSys for r in script.Script.LangSysRecord]:
+        if lang is not None:
+            lang.ReqFeatureIndex = 0xFFFF
+            lang.FeatureIndex = list(range(len(ssty)))
+            lang.FeatureCount = len(ssty)
+metrics = font['hmtx'].metrics
+for name in metrics:
+    metrics[name] = (metrics[name][0], 0)
 cmap = font['cmap']
 terminator = CmapSubtable.newSubtable(4)
 terminator.platformID, terminator.platEncID, terminator.language, terminator.cmap = 3, 1, 0, {}

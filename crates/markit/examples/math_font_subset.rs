@@ -156,6 +156,7 @@ fn corpus() -> Vec<String> {
         formulas.push(format!("x^{{y^{{{atom}}}}}"));
     }
     let letters: String = ('A'..='Z').chain('a'..='z').chain('0'..='9').collect();
+    let capitals_and_digits: String = ('A'..='Z').chain('0'..='9').collect();
     for style in [
         "mathbf",
         "mathit",
@@ -170,6 +171,13 @@ fn corpus() -> Vec<String> {
         "textrm",
         "mathnormal",
     ] {
+        // \mathbb and \mathcal are capitals in practice (and \mathbb{1});
+        // their rare lowercase forms load the full font.
+        let letters = match style {
+            "mathbb" => capitals_and_digits.as_str(),
+            "mathcal" => &capitals_and_digits[..26],
+            _ => letters.as_str(),
+        };
         formulas.push(format!("\\{style}{{{letters}}}"));
         if matches!(style, "mathrm" | "text" | "operatorname") {
             formulas.push(format!("x_{{\\{style}{{{letters}}}}}"));
