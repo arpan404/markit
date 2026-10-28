@@ -1,4 +1,6 @@
-//! Markdown to safe HTML or native UTF-16 text ranges. No global state or UI dependency.
+mod binary;
+pub use binary::{encode_document_binary, render_document_binary, BinaryError};
+// Markdown to safe HTML or native UTF-16 text ranges. No global state or UI dependency.
 mod cache;
 mod document;
 mod fence;

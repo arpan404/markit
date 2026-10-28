@@ -57,6 +57,17 @@ pub fn language_alias(language: &str) -> String {
     }
     .into()
 }
+// Wire palette order is stable for binary transport version 1.
+pub(crate) const PALETTE: [(&str, &str, u32, u32); 8] = [
+    ("#24292f", "#c9d1d9", 0x24292f, 0xc9d1d9),
+    ("#6e7781", "#8b949e", 0x6e7781, 0x8b949e),
+    ("#0a3069", "#a5d6ff", 0x0a3069, 0xa5d6ff),
+    ("#0550ae", "#79c0ff", 0x0550ae, 0x79c0ff),
+    ("#cf222e", "#ff7b72", 0xcf222e, 0xff7b72),
+    ("#8250df", "#d2a8ff", 0x8250df, 0xd2a8ff),
+    ("#953800", "#ffa657", 0x953800, 0xffa657),
+    ("#116329", "#7ee787", 0x116329, 0x7ee787),
+];
 #[derive(Clone, Copy, PartialEq)]
 enum Tone {
     Plain,
@@ -71,31 +82,25 @@ enum Tone {
     Punctuation,
 }
 impl Tone {
-    fn colors(self) -> (&'static str, &'static str) {
+    fn palette_id(self) -> usize {
         match self {
-            Self::Plain | Self::Punctuation => ("#24292f", "#c9d1d9"),
-            Self::Comment => ("#6e7781", "#8b949e"),
-            Self::String => ("#0a3069", "#a5d6ff"),
-            Self::Number | Self::Property => ("#0550ae", "#79c0ff"),
-            Self::Keyword => ("#cf222e", "#ff7b72"),
-            Self::Function => ("#8250df", "#d2a8ff"),
-            Self::Type => ("#953800", "#ffa657"),
-            Self::Tag => ("#116329", "#7ee787"),
+            Self::Plain | Self::Punctuation => 0,
+            Self::Comment => 1,
+            Self::String => 2,
+            Self::Number | Self::Property => 3,
+            Self::Keyword => 4,
+            Self::Function => 5,
+            Self::Type => 6,
+            Self::Tag => 7,
         }
     }
-    /// Same palette as [`Tone::colors`], precomputed so the packed Wasm path
-    /// never re-parses hex text per run.
+    fn colors(self) -> (&'static str, &'static str) {
+        let p = PALETTE[self.palette_id()];
+        (p.0, p.1)
+    }
     fn rgb(self) -> (u32, u32) {
-        match self {
-            Self::Plain | Self::Punctuation => (0x24292f, 0xc9d1d9),
-            Self::Comment => (0x6e7781, 0x8b949e),
-            Self::String => (0x0a3069, 0xa5d6ff),
-            Self::Number | Self::Property => (0x0550ae, 0x79c0ff),
-            Self::Keyword => (0xcf222e, 0xff7b72),
-            Self::Function => (0x8250df, 0xd2a8ff),
-            Self::Type => (0x953800, 0xffa657),
-            Self::Tag => (0x116329, 0x7ee787),
-        }
+        let p = PALETTE[self.palette_id()];
+        (p.2, p.3)
     }
 }
 fn word_byte(byte: u8) -> bool {

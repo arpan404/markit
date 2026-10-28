@@ -13,6 +13,15 @@ typedef struct { uint8_t *data; size_t len; uint32_t status; } MarkitBuffer;
    status 0: success, 1: invalid UTF-8, 2: invalid argument, 3: panic.
    Output is length-delimited, not NUL-terminated. Free exactly once. */
 MarkitBuffer markit_render(const uint8_t *source, size_t len, uint32_t format);
+/* Additive binary v1 APIs. Same status/ownership as markit_render.
+   mode 0 lexical, 1 grammar. See docs/binary-transport.md. */
+typedef struct {
+    const uint8_t *source; size_t source_len;
+    const uint8_t *language; size_t language_len;
+    uint32_t mode;
+} MarkitCodeRequest;
+MarkitBuffer markit_render_binary(const uint8_t *source, size_t len);
+MarkitBuffer markit_code_binary(const MarkitCodeRequest *request);
 void markit_buffer_free(MarkitBuffer buffer);
 typedef struct MarkitStream MarkitStream;
 MarkitStream *markit_stream_new(void);
