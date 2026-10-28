@@ -1,5 +1,5 @@
 import { unpackHighlight } from './highlight.js';
-import { prepareCode } from './code-lines.js';
+import { prepareCode, codeLines, firstChangedLine } from './code-lines.js';
 import { GpuCodeRenderer } from './gpu-code.js';
 
 /** One Web Worker and Wasm instance serves every renderer created with the
@@ -74,7 +74,7 @@ export function terminateMarkitWorkers() {
 export class MarkitRenderer {
   #element; #engine; #stream; #generation = 0; #sent; #revision = 0;
   #running = false; #queued; #destroyed = false; #options; #code = new WeakMap();
-  #html = []; #dirty = Infinity;
+  #html = []; #dirty = Infinity; #payloads = new WeakMap(); #lines = new WeakMap();
   #urls = new Map(); #imageJobs = new Map(); #listeners = new AbortController();
   #gpu = new GpuCodeRenderer(); #gpuViews = new Map();
   constructor(element, options = {}) {
@@ -158,7 +158,10 @@ export class MarkitRenderer {
   }
   #apply(patch) {
     if (this.#destroyed) return;
-    while (this.#element.children.length > patch.replace_from) {
+    let from = patch.replace_from, blocks = patch.blocks;
+    const open = this.#element.children[from];
+    if (open && blocks.length && this.#grow(open, blocks[0])) { from++; blocks = blocks.slice(1); }
+    while (this.#element.children.length > from) {
       const block = this.#element.lastElementChild;
       for (const pre of block.querySelectorAll('pre')) {
         this.#gpuViews.get(pre)?.destroy(); this.#gpuViews.delete(pre);
@@ -171,10 +174,11 @@ export class MarkitRenderer {
       block.remove();
     }
     const fragment = document.createDocumentFragment();
-    for (const payload of patch.blocks) {
+    for (const payload of blocks) {
       const block = document.createElement('div');
       block.className = 'mk-block';
       block.innerHTML = payload.html;
+      this.#payloads.set(block, payload);
       for (const section of block.querySelectorAll('.mk-codeblock')) this.#prepareCode(section, payload.codes?.[Number(section.dataset.markitCode)]);
       fragment.append(block);
     }
@@ -183,10 +187,39 @@ export class MarkitRenderer {
       for (const image of this.#element.querySelectorAll('img[data-markit-src]:not([data-requested])')) this.#resolveImage(image);
     }
   }
+  /** An open block whose markup is unchanged and whose code fences only changed
+   * text keeps its element; only code lines from the first changed line are rebuilt.
+   * Streaming a fence then costs the new lines, not the whole fence. */
+  #grow(block, payload) {
+    const previous = this.#payloads.get(block);
+    if (!previous || previous.html !== payload.html || !payload.codes?.length) return false;
+    const sections = [...block.querySelectorAll('.mk-codeblock')];
+    if (sections.length !== payload.codes.length) return false;
+    const updates = [];
+    for (const section of sections) {
+      const index = Number(section.dataset.markitCode), before = previous.codes?.[index], after = payload.codes[index];
+      const old = this.#lines.get(section);
+      if (!before || !after || !old || typeof after.source !== 'string') return false;
+      if (before.info.language !== after.info.language || before.info.diff !== after.info.diff || before.info.file !== after.info.file) return false;
+      const next = codeLines(after.source, after.ranges, after.info.diff);
+      if (next.length > 400) return false;
+      updates.push([section, old, next, after.source]);
+    }
+    for (const [section, old, next, source] of updates) {
+      const code = section.querySelector('code');
+      const keep = firstChangedLine(old, next);
+      while (code.children.length > keep) code.lastElementChild.remove();
+      if (keep < next.length) code.append(...next.slice(keep, next.length));
+      this.#lines.set(section, next); this.#code.set(section, source);
+    }
+    this.#payloads.set(block, payload);
+    return true;
+  }
   #prepareCode(section, payload) {
     let rows = payload ? prepareCode(section, payload) : null;
     const code = section.querySelector('code');
     this.#code.set(section, payload?.source ?? code.textContent);
+    if (rows && rows.length <= 400) this.#lines.set(section, rows);
     rows ??= [...code.children];
     if (rows.length <= 400) { code.replaceChildren(...rows.slice(0, rows.length)); return; }
     const pre = section.querySelector('pre');

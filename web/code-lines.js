@@ -31,7 +31,31 @@ export function codeLines(source, words, diff = false) {
   };
   let width = 0;
   for (let i = 0; i < starts.length; i++) width = Math.max(width, (starts[i + 1] ?? source.length) - starts[i]);
-  return { length: starts.length, width, row, slice: (from, to) => Array.from({ length: to - from }, (_, i) => row(from + i)) };
+  const runAt = from => {
+    let lo = 0, hi = count;
+    while (lo < hi) { const mid = (lo + hi) >>> 1; if (words[firstRun + mid * 3] <= from) lo = mid + 1; else hi = mid; }
+    return lo;
+  };
+  return { length: starts.length, width, row, slice: (from, to) => Array.from({ length: to - from }, (_, i) => row(from + i)), source, words, starts, firstRun, count, runAt, diff };
+}
+
+/** First line whose text or colors differ between two `codeLines` results. */
+export function firstChangedLine(a, b) {
+  const lines = Math.min(a.length, b.length);
+  for (let index = 0; index < lines; index++) {
+    const from = a.starts[index], end = a.starts[index + 1] ?? a.source.length;
+    if (from !== b.starts[index] || end !== (b.starts[index + 1] ?? b.source.length)) return index;
+    if (a.source.slice(from, end) !== b.source.slice(from, end)) return index;
+    let ra = a.runAt(from), rb = b.runAt(from), at = from;
+    while (at < end) {
+      if (ra >= a.count || rb >= b.count) return index;
+      const oa = a.firstRun + ra * 3, ob = b.firstRun + rb * 3;
+      const ta = Math.min(end, a.words[oa]), tb = Math.min(end, b.words[ob]);
+      if (ta !== tb || a.words[oa + 1] !== b.words[ob + 1] || a.words[oa + 2] !== b.words[ob + 2]) return index;
+      at = ta; ra++; rb++;
+    }
+  }
+  return lines;
 }
 
 export function prepareCode(section, payload) {

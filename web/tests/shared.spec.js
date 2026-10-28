@@ -77,3 +77,26 @@ test('dedicated workers opt out and terminate on destroy; shared workers restart
   expect(html).toContain('<strong>restart</strong>');
   expect(html.match(/Before restart/g)).toHaveLength(1);
 });
+
+test('streamed code fences grow in place and match a fresh render', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const { MarkitRenderer } = await import('/index.js');
+    const make = () => { const element = document.createElement('div'); document.body.append(element); return [element, new MarkitRenderer(element)]; };
+    const source = 'Intro\n\n```ts title="a.ts"\n' + Array.from({ length: 40 }, (_, i) => i === 20 ? '/* opens a comment' : i === 25 ? 'closes it */ const s = "😀";' : `const v${i} = ${i}; // line`).join('\n') +
+      '\n```\n\n```diff\n--- a\n+++ b\n-old line\n+new line\n context\n```\n\nAfter.\n';
+    const [streamed, live] = make();
+    let kept = 0, fence;
+    for (let at = 3; at < source.length; at += 3) {
+      await live.render(source.slice(0, at), { finalized: false });
+      const current = streamed.querySelector('.mk-codeblock code');
+      if (current && fence === current) kept++;
+      fence = current;
+    }
+    await live.render(source);
+    const [fresh, once] = make();
+    await once.render(source);
+    return { same: streamed.innerHTML === fresh.innerHTML, kept };
+  });
+  expect(result.same).toBe(true);
+  expect(result.kept).toBeGreaterThan(100);
+});

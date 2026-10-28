@@ -1,8 +1,11 @@
 import init, { MarkdownStream, highlightCodePacked, highlightGrammar } from './pkg/markit_wasm.js';
 
-const ready = init();
+let memory;
+const ready = init().then(exports => { memory = exports.memory; });
 /** Renderer streams multiplexed over this worker: id -> { stream, previous }. */
 const streams = new Map();
+/** Diagnostics for tests and benchmarks: live streams and Wasm linear memory. */
+self.markitStats = () => ({ streams: streams.size, wasmMemory: memory?.buffer.byteLength ?? 0 });
 const decoder = new TextDecoder();
 
 /** MKWP version 1. Packed ranges are copied out so string lengths need not be aligned. */

@@ -65,6 +65,8 @@ test('unmount destroys renderers, frees streams and keeps the shared worker', as
   await page.waitForTimeout(300);
   expect(await page.locator('#root').innerHTML()).toBe('');
   expect(page.workers()).toHaveLength(1);
+  // Every unmounted renderer released its stream inside the shared worker.
+  await expect.poll(() => page.workers()[0].evaluate(() => self.markitStats().streams)).toBe(0);
   await page.evaluate(list => window.app.mountTranscript(list), messages(3));
   await expect(page.locator('[data-id] h2')).toHaveCount(3);
 });
