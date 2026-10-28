@@ -27,3 +27,7 @@ opt-level = "z"
 lto = "fat"
 strip = true
 panic = "abort"
+
+# latex-rust with two size and startup changes; see third_party/latex-rust/MARKIT.md.
+[patch.crates-io]
+latex-rust = { path = "third_party/latex-rust" }
