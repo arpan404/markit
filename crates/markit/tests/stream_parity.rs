@@ -17,7 +17,7 @@ fn append_patch_bytes_match_baseline_for_fences_references_tables_and_math() {
             for (i, part) in parts.iter().enumerate() {
                 let patch = stream.append(part, i + 1 == parts.len());
                 let bytes = serde_json::to_vec(&patch).unwrap();
-                for byte in bytes.into_iter().chain([b'\n']) {
+                for byte in bytes.into_iter().chain(*b"\n") {
                     hash = (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3);
                 }
             }

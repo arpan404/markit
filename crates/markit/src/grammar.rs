@@ -27,7 +27,11 @@ fn color(color: Color) -> String {
 pub fn highlight(code: &str, language: &str) -> Arc<HighlightedCode> {
     let language = language_alias(language);
     let key = (language.clone(), code.to_owned());
-    if let Some(cached) = CACHE.with(|cache| cache.borrow_mut().get(&key)) {
+    if let Some(cached) = CACHE.with(|cache| {
+        cache
+            .borrow_mut()
+            .get_by(&key, |candidate| candidate == &key)
+    }) {
         return cached;
     }
     let plain = || HighlightedCode {
