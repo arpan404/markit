@@ -18,7 +18,8 @@ pub use span_index::SpanIndex;
 pub use document::{parse, Block, Document, Span, Style};
 pub use fence::{fence_info, FenceInfo};
 pub use highlight::{
-    highlight, highlight_json, highlight_packed, language_alias, CodeToken, HighlightedCode,
+    code_document_json, for_each_code_span, highlight, highlight_json, highlight_packed,
+    language_alias, BorrowedCodeSpan, CodeToken, HighlightedCode,
 };
 
 /// Optional full Sublime grammars. Enable the `grammars` Cargo feature.

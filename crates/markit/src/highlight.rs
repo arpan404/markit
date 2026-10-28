@@ -837,6 +837,198 @@ pub(crate) fn code_document(code: &str, language: &str) -> crate::Document {
     }
 }
 
+/// Borrowed view of one [`code_document`](crate::code_document) span, without
+/// the per-run owned [`Style::Syntax`](crate::Style::Syntax) strings. The
+/// first emission is always the code-block span; syntax spans follow in
+/// document order and are skipped when the source falls back to plain text.
+/// Colors are `&'static str` palette entries, so streaming them (into JSON or
+/// native ranges) never allocates per run. Spans are only valid for the
+/// duration of the `emit` call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BorrowedCodeSpan<'a> {
+    CodeBlock {
+        start: usize,
+        end: usize,
+        language: &'a str,
+    },
+    Syntax {
+        start: usize,
+        end: usize,
+        light: &'static str,
+        dark: &'static str,
+    },
+}
+
+/// Emit every [`code_document`](crate::code_document) span without building
+/// owned tokens or [`Style::Syntax`](crate::Style::Syntax) strings. The two
+/// [`String`] clones per run dominate native misses; the shared [`lex`] cache
+/// entry already holds compact `(end, Tone)` runs, so this walks them exactly
+/// like [`code_document`](crate::code_document) and borrows the rest.
+pub fn for_each_code_span(code: &str, language: &str, mut emit: impl FnMut(BorrowedCodeSpan<'_>)) {
+    let lexed = lex(code, language);
+    let total = utf16_len(code);
+    emit(BorrowedCodeSpan::CodeBlock {
+        start: 0,
+        end: total,
+        language: &lexed.language,
+    });
+    if lexed.plain {
+        return;
+    }
+    let mut start = 0;
+    let mut offset = 0;
+    for (end, light, dark) in SpanOffsets::new(&lexed.runs) {
+        let next = offset + utf16_len(&code[start..end]);
+        if next > offset {
+            emit(BorrowedCodeSpan::Syntax {
+                start: offset,
+                end: next,
+                light,
+                dark,
+            });
+        }
+        start = end;
+        offset = next;
+    }
+}
+
+/// Byte-to-UTF-16 walk shared by [`for_each_code_span`] and
+/// [`code_document_json`], mirroring the [`code_document`] loop so offsets
+/// cannot drift between the borrowed and owned paths.
+struct SpanOffsets<'a> {
+    runs: std::slice::Iter<'a, (usize, Tone)>,
+}
+
+impl<'a> SpanOffsets<'a> {
+    fn new(runs: &'a [(usize, Tone)]) -> Self {
+        Self { runs: runs.iter() }
+    }
+}
+
+impl Iterator for SpanOffsets<'_> {
+    type Item = (usize, &'static str, &'static str);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let &(end, tone) = self.runs.next()?;
+        let (light, dark) = tone.colors();
+        Some((end, light, dark))
+    }
+}
+
+/// Serialize `{"version","text","spans","blocks"}` directly from compact
+/// runs, without materializing a [`Document`](crate::Document). The native
+/// `code_document` bridge needs JSON text, not span structs; building them
+/// first costs two owned [`String`]s per run plus the document, block-kind
+/// and text clones, then a second pass to re-serialize. This emits
+/// byte-identical JSON: field order matches the derived `Serialize` impls
+/// (`Span` fields, then the flattened internally-tagged `Style`), and
+/// `&str`/`&'static str` serialize exactly like the owned [`String`]s they
+/// replace.
+pub fn code_document_json(code: &str, language: &str) -> String {
+    serde_json::to_string(&CodeDocumentJson {
+        code,
+        lexed: &lex(code, language),
+    })
+    .expect("code document serialization is infallible")
+}
+
+struct CodeDocumentJson<'a> {
+    code: &'a str,
+    lexed: &'a LexedCode,
+}
+
+impl serde::Serialize for CodeDocumentJson<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut out = serializer.serialize_struct("Document", 4)?;
+        out.serialize_field("version", &2u32)?;
+        out.serialize_field("text", &self.code)?;
+        out.serialize_field("spans", &DocumentSpans { doc: self })?;
+        out.serialize_field("blocks", &DocumentBlocks { doc: self })?;
+        out.end()
+    }
+}
+
+struct DocumentSpans<'a> {
+    doc: &'a CodeDocumentJson<'a>,
+}
+
+impl serde::Serialize for DocumentSpans<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeSeq;
+        let runs = self.doc.lexed.runs.len();
+        let mut seq = serializer.serialize_seq(Some(runs + 1))?;
+        let total = utf16_len(self.doc.code);
+        // Same shape and field order as `Span` with a flattened `CodeBlock`.
+        seq.serialize_element(&BorrowedCodeBlockSpan {
+            start: 0,
+            end: total,
+            kind: "code_block",
+            language: &self.doc.lexed.language,
+        })?;
+        if !self.doc.lexed.plain {
+            let mut start = 0;
+            let mut offset = 0;
+            for (end, light, dark) in SpanOffsets::new(&self.doc.lexed.runs) {
+                let next = offset + utf16_len(&self.doc.code[start..end]);
+                if next > offset {
+                    // Same shape and field order as `Span` with flattened `Syntax`.
+                    seq.serialize_element(&BorrowedSyntaxSpan {
+                        start: offset,
+                        end: next,
+                        kind: "syntax",
+                        light,
+                        dark,
+                    })?;
+                }
+                start = end;
+                offset = next;
+            }
+        }
+        seq.end()
+    }
+}
+
+#[derive(serde::Serialize)]
+struct BorrowedCodeBlockSpan<'a> {
+    start: usize,
+    end: usize,
+    kind: &'static str,
+    language: &'a str,
+}
+
+#[derive(serde::Serialize)]
+struct BorrowedSyntaxSpan {
+    start: usize,
+    end: usize,
+    kind: &'static str,
+    light: &'static str,
+    dark: &'static str,
+}
+
+struct DocumentBlocks<'a> {
+    doc: &'a CodeDocumentJson<'a>,
+}
+
+impl serde::Serialize for DocumentBlocks<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeSeq;
+        let mut seq = serializer.serialize_seq(Some(1))?;
+        seq.serialize_element(&BorrowedBlock {
+            start: 0,
+            end: utf16_len(self.doc.code),
+            kind: "code",
+        })?;
+        seq.end()
+    }
+}
+
+#[derive(serde::Serialize)]
+struct BorrowedBlock {
+    start: usize,
+    end: usize,
+    kind: &'static str,
+}
 /// Compact lexical result for Wasm. Words are version 1, plain flag, language
 /// UTF-16 length, language UTF-16 units, then triples of end UTF-16 offset and
 /// light/dark 24-bit RGB. Runs are contiguous and start at offset zero.
@@ -955,6 +1147,66 @@ mod tests {
             "mix 🦀 é 中 end",
         ] {
             assert_eq!(utf16_len(text), text.encode_utf16().count());
+        }
+    }
+
+    #[test]
+    fn borrowed_code_spans_match_owned_document() {
+        for (source, language) in [
+            (
+                "export function greet(name: string): string {\n  // c 🦀\n  return `Hi ${name}!`;\n}\n",
+                "ts",
+            ),
+            (
+                "fn main() {\n    let x: u32 = 0xff; // hi\n    println!(\"r#{raw}#\");\n}\n",
+                "rust",
+            ),
+            (
+                "def f(x):\n    # comment\n    return \"\"\"triple 🦀\"\"\" + 1.5\n",
+                "python",
+            ),
+            ("SELECT a FROM t WHERE x = 1 AND y = 'Z';\n", "sql"),
+            ("<div class=\"a\"><!-- c --><p>hi</p></div>\n", "html"),
+            ("just plain text here\n", "unknown-markit-language"),
+            ("", "rust"),
+            ("", "unknown-markit-language"),
+        ] {
+            let owned = code_document(source, language);
+            assert_eq!(
+                code_document_json(source, language),
+                serde_json::to_string(&owned).expect("document serialization is infallible"),
+                "{language}"
+            );
+            let mut rebuilt = Vec::with_capacity(owned.spans.len());
+            for_each_code_span(source, language, |span| {
+                rebuilt.push(match span {
+                    BorrowedCodeSpan::CodeBlock {
+                        start,
+                        end,
+                        language,
+                    } => crate::Span {
+                        start,
+                        end,
+                        style: crate::Style::CodeBlock {
+                            language: language.into(),
+                        },
+                    },
+                    BorrowedCodeSpan::Syntax {
+                        start,
+                        end,
+                        light,
+                        dark,
+                    } => crate::Span {
+                        start,
+                        end,
+                        style: crate::Style::Syntax {
+                            light: light.into(),
+                            dark: dark.into(),
+                        },
+                    },
+                });
+            });
+            assert_eq!(rebuilt, owned.spans, "{language}");
         }
     }
 }
