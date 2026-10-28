@@ -62,7 +62,7 @@ Markit currently creates vector layout, SVG paths, and native PNG data even for 
 | sum_fraction | KaTeX HTML + MathML, uncached | 0.0416 ms |
 | sum_fraction | Markit Wasm math, repeated formula | 0.0039 ms |
 
-Candidate work includes a web-only vector math path that avoids unused PNG generation. This has not yet been implemented or measured. Cached formulas are fast, but that does not remove the cost of new/edited formulas.
+Wasm builds no longer link the PNG rasterizer, so new formulas on the web produce SVG only; the table above predates that change and has not been re-run in a browser. Cached formulas are fast, but that does not remove the cost of new/edited formulas.
 
 ## Streaming append
 
@@ -89,7 +89,7 @@ These are single observations on localhost, with module loading/initialization a
 
 ## Streaming fences after the Linux pass
 
-The Mac streaming row above is one append after a finished history. It does not show an assistant message that is still inside a large fence. On the Linux VM, appending 400 Rust lines to an open fence cost 98.6 ms of HTML and 76.9 ms of native document construction before this pass, and 6.0 ms / 18.5 ms after, with identical patch bytes. Serializing those native patches as JSON cost 107 ms; the MKNP binary wrapper cost 35 ms and 221 KB instead of 405 KB. UIKit and JNI still take the JSON export. Details and the chat-message table are in [the optimization report](performance-optimization.md).
+The Mac streaming row above is one append after a finished history. It does not show an assistant message that is still inside a large fence. On the Linux VM, appending 400 Rust lines to an open fence cost 98.6 ms of HTML and 76.9 ms of native document construction before this pass, and 6.0 ms / 18.5 ms after, with identical patch bytes. Serializing those native patches as JSON cost 107 ms; the MKNP binary wrapper cost 35 ms and 221 KB instead of 405 KB. UIKit and JNI then still took the JSON export. A later Linux pass moved them to MKNP v2 fence extensions: a 2,000-line fence streamed by line went from 390 ms with MKNP v1 to 47 ms, with 279-byte open-fence patches. Swift and Kotlin readers were checked against the JSON bridge on Linux hosts, not devices. Details and the chat-message table are in [the optimization report](performance-optimization.md).
 
 ## Remaining measurements and work
 
@@ -98,7 +98,7 @@ The Mac streaming row above is one append after a finished history. It does not 
 - There is no equivalent current Android Markdown parser baseline: Ace's Android transcript uses plain Text. Do not present plain-text display as a Markdown performance win.
 - Profile Wasm lexical scanning, cache lookup, serialization, and decoding separately; reduce overhead without silently changing feature coverage.
 - Keep full grammars opt-in while addressing their steady-state cost.
-- Evaluate a web-only math path that skips native PNG work.
+- Measure the web math path in the browser again: Wasm no longer links the PNG rasterizer (2.69 MB to 2.16 MB after `wasm-bindgen`), but the browser math table above predates that.
 - Integrate the renderer into Ace, then compare the full transcript pipeline, not just the library.
 
 Nine batches are retained for each steady-state case. The main statistic is the median of per-call batch averages. The stored p95 is a percentile of batch averages, not production tail latency. See [methodology and reproduction](../benchmarks/README.md) and [raw results](../benchmarks/results/).

@@ -111,4 +111,55 @@ A 400-line native fence is still superlinear: every append materializes the full
 
 ## Reproduce
 
+## Highlighting, math and native transport pass
+
+Measured on the shared Linux x86_64 VM (8 vCPU), rustc 1.91.1, release profile, on 2026-10-28. Before is `7df24be`; after is this pass. Each before/after pair ran back to back in one script on an otherwise idle box: `cargo run --release -p markit --features grammars --example perf_pass`, `--example ace_bench`, and `cargo bench -p markit --bench throughput --features grammars`. Medians of 5–15 samples from one process; expect roughly 5–10% run-to-run noise on this VM. Output is unchanged: `hash_outputs` prints `144f38f180411ce5`, the stream golden is `0x62934f069ba14d79`, and the new `tests/golden.rs` math (`1c14432ffdfbb735`) and full-grammar (`86113db1668408bd`) hashes were recorded at `7df24be`.
+
+| Case | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| Native fence, 2,000 lines by line, JSON patches | 633.2 ms | 324.8 ms | 1.9x |
+| Native fence, 2,000 lines, MKNP v1 | 389.9 ms | 93.2 ms | 4.2x |
+| Native fence, 2,000 lines, MKNP v2 (new) | — | 47.2 ms | 8.3x vs v1 before |
+| Same, per append over the last 50 lines | 0.243 ms (v1) | 0.009 ms (v2) | 27x |
+| Same, open-fence patch size | 154,850 B (v1) | 279 B (v2) | |
+| Native fence, 400 lines, MKNP v1 → v2 (`ace_bench`) | 31.5 ms | 14.3 ms | 2.2x |
+| `ace_bench` stream_fence_400 native / html | 16.7 / 4.6 ms | 13.1 / 3.6 ms | 1.3x |
+| Lexical packed hit, Rust 200 lines | 0.0120 ms | 0.0009 ms | 13x |
+| Lexical packed miss, Rust 200 lines | 0.0602 ms | 0.0562 ms | 1.07x |
+| `ace_bench` highlight_grow_120 sum | 0.570 ms | 0.380 ms | 1.5x |
+| Full grammar, Rust 200 lines, cold | 17.7 ms | 8.5 ms | 2.1x |
+| Full grammar, TSX 200 lines, cold | 24.0 ms | 17.4 ms | 1.4x |
+| Full grammar, Rust 200 lines, grown line by line | 60.8 ms | 10.2 ms | 6.0x |
+| Full grammar, TSX 200 lines, grown line by line | 48.0 ms | 19.3 ms | 2.5x |
+| Full grammar, exact repeat | 0.034 ms | 0.001 ms | |
+| Full grammar, first use (TS) | 7.8 ms | 8.0 ms | unchanged |
+| Math, 6 new formulas, SVG + PNG API | 3.82 ms | 2.79 ms | 1.4x |
+| Math, 6 new formulas, native PNG only | 2.36 ms | 2.28 ms | 1.04x |
+| Math, 6 new formulas, HTML SVG only | 0.62 ms | 0.58 ms | 1.07x |
+| Math, streamed (native / both) | 2.84 / 3.06 ms | 2.61 / 2.74 ms | 1.1x |
+| Throughput bench, math SVG + PNG | 1,887 µs | 1,625 µs | 1.16x |
+| Throughput bench, grammar cold / grow 200 | 19.4 / 61.8 ms | 7.6 / 10.4 ms | 2.6x / 6.0x |
+| Wasm (`wasm-bindgen` output) | 2,692,403 B | 2,160,196 B | −19.8% |
+| Wasm, gzip −9 | 1,329,446 B | 1,122,984 B | −15.5% |
+
+The Markdown throughput rows (parse, JSON, HTML at 1/50/400 sections) and the 104 KB streaming append moved within run-to-run noise.
+
+What changed:
+
+- **Lexical.** Growing fences check the append hot slot before the hashed cache. Past the 8,192-run limit, the plain fallback stays sticky for later appends unless the fence's later text could change earlier tones, so a 2,000-line fence no longer rescans and rehashes the whole fence on every line. Cache keys use a word-at-a-time hash and are still confirmed by full comparison. Packed words are cached per result, and UTF-16 offsets use an ASCII fast path.
+- **Full grammars.** Theme styles depend only on the scope stack, so both themes resolve once per distinct stack, not through two `HighlightIterator`s per line. Highlighters are built once per process. Line checkpoints share snapshots. A pure append reuses the previous token vector in place when the caller has dropped it, and is kept out of the byte-budgeted cache. First use still pays the syntax-set load.
+- **Math.** Native PNGs use a port of latex-rust's tiny-skia raster with a per-thread glyph outline cache. The PNG bytes are identical. Wasm no longer links tiny-skia or the PNG encoder. Most of the remaining PNG time is anti-aliased fill and deflate; the encoder settings are fixed by the golden PNG bytes.
+- **Native transport.** MKNP v2 ([binary transport](binary-transport.md)) sends an open fence as an extension of the block the host already holds. `markit_stream_append_patch` and `Markit.nativeAppendPatch` expose it, and Swift and Kotlin `MarkitStream` now use it in place of JSON. The non-lazy stream path only reuses the fence span list when the fence body actually grew; otherwise it compares blocks as before.
+
+Verification: `cargo test --workspace` passes with default features and with `--features markit/grammars`. `cargo clippy --workspace --all-targets -D warnings` passes for both, and `cargo fmt` is clean. `tests/native_patch.rs` replays MKNP v2 patches against the eager JSON stream for each append. The Kotlin `NativePatchReader` and `MarkitStream` were compiled with kotlinc 2.0.21 and run on a desktop JVM through the real JNI functions from `android.rs`, built as a host cdylib with an `android.util.Base64` stub. In that run, 22,628 appends produced the same documents as the JSON bridge. The Swift `NativePatchReader` and `MarkitStream` were compiled with Swift 6.0.3 on Linux against the C header and a host `libmarkit_ffi.a`. There, 2,473 appends matched `markit_stream_append` JSON decoding. Neither has been run on an iOS or Android device or in their UI layers, and frame times are unmeasured.
+
+Remaining gaps:
+
+- Swift and Kotlin still copy the kept text and span range per extension, which is linear in the fence on the host side.
+- `lex()` still does a `starts_with` comparison over the previous fence per append.
+- The web fence path still copies fence source.
+- Full-grammar regex matching (Oniguruma natively) and first-use syntax loading are unchanged.
+- Math PNG fill and deflate dominate new-formula cost.
+- A Wasm `renderDocument` or native-mode stream keeps math as source text, because PNG is native-only.
+
 Run `cargo run --release -p markit --example ace_bench` for the streaming table. `cargo run --release -p markit --example hash_outputs` prints the output fingerprint. Run `./benchmarks/run-native-features.sh` for the isolated host comparison. Build web packages with `./scripts/build-web.sh`, then build optional grammar Wasm into `benchmarks/artifacts/grammars-web` as in `benchmarks/run.sh`. Run `BENCH_OUTPUT=browser-optimized.json node benchmarks/run-browser.mjs` and `BENCH_FUNCTION=runMathBench BENCH_OUTPUT=math-optimized.json node benchmarks/run-browser.mjs` sequentially on an idle machine. Finally run `python3 benchmarks/write-optimization-report.py`. See [methodology](../benchmarks/README.md) for fixture and batch details.
