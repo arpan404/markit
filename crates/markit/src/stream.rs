@@ -7,6 +7,11 @@ use std::{ops::Range, sync::Arc};
 pub struct WebCode {
     pub source: String,
     pub info: crate::FenceInfo,
+    /// UTF-16 offsets of `source` inside the stream's Markdown, when `source`
+    /// is an exact slice. Nested fences that the parser rewrites leave this
+    /// empty and the web patch carries the body bytes instead.
+    #[serde(skip)]
+    pub utf16: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -39,6 +44,9 @@ pub struct StreamRenderer {
     source: String,
     open_fence: Option<crate::stream_fence::OpenFence>,
     blocks: Vec<Arc<RenderedBlock>>,
+    /// Markdown source of each block, kept only while the block can still be
+    /// reopened. Identical source with unchanged references reuses the block.
+    block_sources: Vec<Arc<str>>,
     settled: usize,
     settled_count: usize,
     references: References,
@@ -118,7 +126,9 @@ impl StreamRenderer {
         // Its fallback only needs older definitions: new ones resolve in-parser.
         let previous_references = self.references.clone();
         let mut parser = crate::parser_with_refs(&prepared.source, &previous_references);
+        let mut references_changed = false;
         if parser.reference_definitions().iter().next().is_some() {
+            references_changed = true;
             if self.settled > 0 {
                 drop(parser);
                 prepared = crate::math::prepare(&self.source);
@@ -192,13 +202,28 @@ impl StreamRenderer {
             }
         }
         let mut next: Vec<Arc<RenderedBlock>> = Vec::new();
+        let mut next_sources: Vec<Arc<str>> = Vec::new();
         for (range, events) in ranges.iter().zip(block_events) {
+            let source = &tail[range.clone()];
+            let index = self.settled_count + next.len();
+            if !references_changed {
+                if let (Some(previous), Some(existing)) =
+                    (self.block_sources.get(index), self.blocks.get(index))
+                {
+                    if previous.as_ref() == source {
+                        next.push(existing.clone());
+                        next_sources.push(previous.clone());
+                        continue;
+                    }
+                }
+            }
+            next_sources.push(Arc::from(source));
             let mut html = String::new();
             let mut codes = Vec::new();
             if self.web {
-                let source = &tail[range.clone()];
+                let block_source = source;
                 crate::html::render_html_code(
-                    source,
+                    block_source,
                     &mut html,
                     &self.references,
                     &mut |source, info| {
@@ -206,10 +231,26 @@ impl StreamRenderer {
                         codes.push(WebCode {
                             source: source.into(),
                             info: info.clone(),
+                            utf16: None,
                         });
                         format!("<section class=\"mk-codeblock\" data-markit-code=\"{index}\"></section>\n")
                     },
                 );
+                let block_utf16 =
+                    crate::highlight::utf16_len(&self.source[..self.settled + range.start]);
+                for code in &mut codes {
+                    if code.source.is_empty() {
+                        continue;
+                    }
+                    if let Some(at) = block_source.find(&code.source) {
+                        if at == 0 || block_source.as_bytes()[at - 1] == b'\n' {
+                            let start =
+                                block_utf16 + crate::highlight::utf16_len(&block_source[..at]);
+                            let end = start + crate::highlight::utf16_len(&code.source);
+                            code.utf16 = Some((start as u32, end as u32));
+                        }
+                    }
+                }
             } else if !self.native_only {
                 crate::html::render_events(&prepared, events.iter().cloned(), &mut html);
             }
@@ -232,6 +273,15 @@ impl StreamRenderer {
         let blocks = next[common..].to_vec();
         self.blocks.truncate(replace_from);
         self.blocks.extend(next.into_iter().skip(common));
+        self.block_sources.truncate(replace_from);
+        self.block_sources
+            .extend(next_sources.into_iter().skip(common));
+        let settled = self.settled_count.min(self.block_sources.len());
+        for source in &mut self.block_sources[..settled] {
+            if !source.is_empty() {
+                *source = Arc::from("");
+            }
+        }
         // A partial first line can still join the preceding table/list. Hold
         // two blocks until that line completes, and one block afterward.
         let hold = if ranges

@@ -71,6 +71,11 @@ export class MarkitRenderer {
     this.#queued = undefined;
     try {
       const patch = await this.#rpc('render', { source: job.source, finalized: job.finalized });
+      for (const block of patch.blocks) {
+        for (const code of block.codes ?? []) {
+          if (typeof code.source !== 'string') code.source = job.source.slice(code.start, code.end);
+        }
+      }
       this.#html.splice(patch.replace_from, this.#html.length - patch.replace_from, ...patch.blocks);
       this.#dirty = Math.min(this.#dirty, patch.replace_from);
       if (job.revision === this.#revision) {

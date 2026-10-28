@@ -1,6 +1,5 @@
 //! Fast continuation only for unindented, top-level open fences. Markdown
 //! containers, normalized CR/NUL input and closing fences use the parser.
-use pulldown_cmark::{CodeBlockKind, CowStr, Event, Tag, TagEnd};
 use std::sync::Arc;
 
 pub(crate) struct OpenFence {
@@ -9,6 +8,9 @@ pub(crate) struct OpenFence {
     marker: u8,
     width: usize,
     info: String,
+    html: Option<crate::html::CodeHtml>,
+    doc: Option<crate::document::FenceDoc>,
+    body_utf16: usize,
 }
 
 impl OpenFence {
@@ -29,6 +31,9 @@ impl OpenFence {
             marker,
             width,
             info: info.to_owned(),
+            html: None,
+            doc: None,
+            body_utf16: crate::highlight::utf16_len(&source[..opening_end]),
         };
         fence.continue_source(source).then_some(fence)
     }
@@ -55,7 +60,7 @@ impl OpenFence {
     }
 
     pub(crate) fn render(
-        &self,
+        &mut self,
         source: &str,
         html_only: bool,
         native_only: bool,
@@ -71,31 +76,36 @@ impl OpenFence {
             code
         };
         let code_text: &str = code;
-        let code = CowStr::Borrowed(code_text);
-        let events = [
-            Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(
-                self.info.as_str().into(),
-            ))),
-            Event::Text(code),
-            Event::End(TagEnd::CodeBlock),
-        ];
-        let prepared = crate::math::prepare("");
+        let info = crate::fence_info(&self.info);
+        let runs = (!web).then(|| crate::highlight::lex_runs(code_text, &info.language));
         let mut html = String::new();
         if web {
-            let info = crate::fence_info(&self.info);
             let index = codes.len();
+            let end_utf16 = self.body_utf16 + crate::highlight::utf16_len(code_text);
             codes.push(super::WebCode {
                 source: code_text.to_owned(),
-                info,
+                info: info.clone(),
+                utf16: Some((self.body_utf16 as u32, end_utf16 as u32)),
             });
             html = format!(
                 "<section class=\"mk-codeblock\" data-markit-code=\"{index}\"></section>\n"
             );
-        } else if !native_only {
-            crate::html::render_events(&prepared, events.iter().cloned(), &mut html);
         }
-        let document =
-            (!html_only).then(|| crate::document::parse_events(&prepared, events.into_iter()));
+        let document = if let Some(runs) = runs.as_ref() {
+            if !native_only {
+                html = self
+                    .html
+                    .get_or_insert_with(|| crate::html::CodeHtml::new(&info))
+                    .render(code_text, &info, runs);
+            }
+            (!html_only).then(|| {
+                self.doc
+                    .get_or_insert_with(|| crate::document::FenceDoc::new(&info))
+                    .render(code_text, &info, runs)
+            })
+        } else {
+            None
+        };
         Arc::new(super::RenderedBlock {
             html,
             document,

@@ -109,7 +109,7 @@ fn word_byte(byte: u8) -> bool {
 /// UTF-16 length with a SIMD-friendly ASCII fast path. Code is usually ASCII;
 /// `encode_utf16().count()` fully decodes UTF-8, which costs a second pass
 /// over every run. Identical result on all inputs.
-fn utf16_len(text: &str) -> usize {
+pub(crate) fn utf16_len(text: &str) -> usize {
     let bytes = text.as_bytes();
     if bytes.is_ascii() {
         bytes.len()
@@ -705,26 +705,85 @@ fn lex(code: &str, language: &str) -> Arc<LexedCode> {
     }) {
         return cached;
     }
-    let result = APPEND_SCAN.with(|slot| {
+    // `extended` scans only the new suffix. Those prefixes are not inserted
+    // into the shared cache: a streaming fence would otherwise copy the whole
+    // source on every line and evict useful entries. An exact repeat of the
+    // hot buffer returns the existing allocation.
+    let (result, store) = APPEND_SCAN.with(|slot| {
         let mut slot = slot.borrow_mut();
-        let previous = slot.as_ref().filter(|(source, old)| {
+        if let Some((source, old)) = slot.as_ref() {
+            if old.language == language && source.as_str() == code {
+                return (old.clone(), false);
+            }
+        }
+        let extended = slot.as_ref().is_some_and(|(source, old)| {
             old.language == language && !old.plain && code.starts_with(source.as_str())
         });
-        let result = Arc::new(match previous {
-            Some((_, old)) => scan_from(code, &language, Some(old)),
+        let previous = extended
+            .then(|| slot.as_ref().map(|(_, old)| old.clone()))
+            .flatten();
+        let result = Arc::new(match &previous {
+            Some(old) => scan_from(code, &language, Some(old)),
             None => scan(code, &language),
         });
+        if extended {
+            if let Some((source, stored)) = slot.as_mut() {
+                source.push_str(&code[source.len()..]);
+                *stored = result.clone();
+            }
+            return (result, false);
+        }
         *slot = (code.len() <= 1024 * 1024).then(|| (code.to_owned(), result.clone()));
-        result
+        (result, code.len() <= 1024 * 1024)
     });
-    // Reserve the budget for lazy token materialization as well as compact runs.
-    let weight = language.len() + code.len() * 2 + result.runs.len() * 128;
-    CACHE.with(|cache| {
-        cache
-            .borrow_mut()
-            .insert((language, code.to_owned()), result.clone(), weight)
-    });
+    if store {
+        // Reserve the budget for lazy token materialization as well as compact runs.
+        let weight = language.len() + code.len() * 2 + result.runs.len() * 128;
+        CACHE.with(|cache| {
+            cache
+                .borrow_mut()
+                .insert((language, code.to_owned()), result.clone(), weight)
+        });
+    }
     result
+}
+
+/// Compact runs for one source. `stable_byte` is a line boundary: every run
+/// that ends there is final for an append-only buffer. The open tail is the
+/// last line, or the line that still contains a multiline token.
+pub(crate) struct LexRuns {
+    pub plain: bool,
+    pub runs: Vec<(usize, u8)>,
+    pub stable_byte: usize,
+}
+
+impl LexRuns {
+    pub(crate) fn is_plain(&self) -> bool {
+        self.plain
+    }
+}
+
+pub(crate) fn lex_runs(code: &str, language: &str) -> LexRuns {
+    let lexed = lex(code, language);
+    let stable_byte = if lexed.plain {
+        code.rfind('\n').map_or(0, |at| at + 1)
+    } else {
+        let at = lexed.checkpoint.at.min(code.len());
+        if at == 0 || code.as_bytes().get(at - 1) == Some(&b'\n') {
+            at
+        } else {
+            code[..at].rfind('\n').map_or(0, |nl| nl + 1)
+        }
+    };
+    LexRuns {
+        plain: lexed.plain,
+        runs: lexed
+            .runs
+            .iter()
+            .map(|&(end, tone)| (end, tone.palette_id() as u8))
+            .collect(),
+        stable_byte,
+    }
 }
 
 pub fn highlight(code: &str, language: &str) -> Arc<HighlightedCode> {
@@ -754,16 +813,6 @@ pub fn highlight(code: &str, language: &str) -> Arc<HighlightedCode> {
             })
         })
         .clone()
-}
-
-pub(crate) fn for_each_run(code: &str, language: &str, mut emit: impl FnMut(&str, &str, &str)) {
-    let lexed = lex(code, language);
-    let mut start = 0;
-    for &(end, tone) in &lexed.runs {
-        let (light, dark) = tone.colors();
-        emit(&code[start..end], light, dark);
-        start = end;
-    }
 }
 
 pub(crate) fn append_syntax_spans(

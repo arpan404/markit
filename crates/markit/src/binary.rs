@@ -201,10 +201,64 @@ pub fn encode_document_binary(doc: &Document) -> Result<Vec<u8>, BinaryError> {
     word(out.len())?;
     Ok(out)
 }
+/// Patch wrapper around [`encode_document_binary`]. Magic `MKNP`, version 1.
+/// Each block is a length-prefixed MKBP document. Native streams only; a block
+/// without a document is an error.
+pub fn encode_native_patch(patch: &crate::RenderPatch) -> Result<Vec<u8>, BinaryError> {
+    let mut out = Vec::new();
+    out.extend_from_slice(b"MKNP");
+    put(&mut out, 1);
+    put(&mut out, word(patch.replace_from)?);
+    put(&mut out, u32::from(patch.finalized));
+    put(&mut out, word(patch.source_bytes)?);
+    put(&mut out, word(patch.parsed_bytes)?);
+    put(&mut out, word(patch.blocks.len())?);
+    for block in &patch.blocks {
+        let Some(document) = block.document.as_ref() else {
+            return Err(BinaryError::TooLarge);
+        };
+        let bytes = encode_document_binary(document)?;
+        put(&mut out, word(bytes.len())?);
+        out.extend_from_slice(&bytes);
+    }
+    Ok(out)
+}
+
 fn rgb(s: &str) -> Option<u32> {
     // Only canonical lowercase RGB can be reconstructed field-for-field.
     if s.len() != 7 || !s.starts_with('#') || s.bytes().any(|b| b.is_ascii_uppercase()) {
         return None;
     }
     u32::from_str_radix(&s[1..], 16).ok()
+}
+
+#[cfg(test)]
+mod patch_tests {
+    #[test]
+    fn native_patch_embeds_each_document_unchanged() {
+        let mut stream = crate::StreamRenderer::new_native();
+        let patch = stream.append("# Title\n\n```rust\nlet x = 1;\n", false);
+        let bytes = crate::encode_native_patch(&patch).unwrap();
+        assert_eq!(&bytes[..4], b"MKNP");
+        let mut at = 4usize;
+        let word = |bytes: &[u8], at: &mut usize| {
+            let value = u32::from_le_bytes(bytes[*at..*at + 4].try_into().unwrap());
+            *at += 4;
+            value
+        };
+        assert_eq!(word(&bytes, &mut at), 1);
+        assert_eq!(word(&bytes, &mut at) as usize, patch.replace_from);
+        let _finalized = word(&bytes, &mut at);
+        let _source = word(&bytes, &mut at);
+        let _parsed = word(&bytes, &mut at);
+        assert_eq!(word(&bytes, &mut at) as usize, patch.blocks.len());
+        for block in &patch.blocks {
+            let len = word(&bytes, &mut at) as usize;
+            let embedded = &bytes[at..at + len];
+            at += len;
+            let direct = crate::encode_document_binary(block.document.as_ref().unwrap()).unwrap();
+            assert_eq!(embedded, direct);
+        }
+        assert_eq!(at, bytes.len());
+    }
 }

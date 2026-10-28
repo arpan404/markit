@@ -2,6 +2,11 @@ use pulldown_cmark::{html, CodeBlockKind, CowStr, Event, Tag};
 
 pub(crate) fn escape(text: &str) -> String {
     let mut escaped = String::with_capacity(text.len());
+    escape_into(text, &mut escaped);
+    escaped
+}
+
+pub(crate) fn escape_into(text: &str, escaped: &mut String) {
     for c in text.chars() {
         match c {
             '&' => escaped.push_str("&amp;"),
@@ -12,10 +17,13 @@ pub(crate) fn escape(text: &str) -> String {
             _ => escaped.push(c),
         }
     }
-    escaped
 }
 
 pub(crate) fn bare_links(text: &str) -> Vec<(std::ops::Range<usize>, String)> {
+    // linkify only emits schemes, e-mail addresses, and www-prefixed hosts.
+    if !text.bytes().any(|b| b == b':' || b == b'@') && !contains_www(text.as_bytes()) {
+        return Vec::new();
+    }
     let mut finder = linkify::LinkFinder::new();
     finder.kinds(&[linkify::LinkKind::Url, linkify::LinkKind::Email]);
     finder
@@ -32,6 +40,15 @@ pub(crate) fn bare_links(text: &str) -> Vec<(std::ops::Range<usize>, String)> {
             crate::is_safe_url(&url).then_some((link.start()..link.end(), url))
         })
         .collect()
+}
+
+fn contains_www(bytes: &[u8]) -> bool {
+    bytes.windows(4).any(|window| {
+        window[0].eq_ignore_ascii_case(&b'w')
+            && window[1].eq_ignore_ascii_case(&b'w')
+            && window[2].eq_ignore_ascii_case(&b'w')
+            && window[3] == b'.'
+    })
 }
 
 /// Reuse the caller's allocation. Raw HTML is always escaped. Code, math and
@@ -311,58 +328,227 @@ pub(crate) fn render_events<'a>(
     html::push_html(output, events);
 }
 
-fn render_code(code: &str, info: &crate::FenceInfo) -> String {
-    let mut output = format!("<section class=\"mk-codeblock\"><header><span>{}</span><button type=\"button\" data-markit-copy aria-label=\"Copy code\">Copy</button></header><pre><code class=\"language-{}\">",
-        escape(info.file.as_deref().unwrap_or(&info.language)), escape(&info.language));
-    let mut line = 1usize;
-    output.push_str("<span class=\"mk-line\" data-line=\"1\">");
+pub(crate) fn diff_kind(part: &str) -> &'static str {
+    if part.starts_with("+++")
+        || part.starts_with("---")
+        || part.starts_with("@@")
+        || part.starts_with("diff ")
+    {
+        "meta"
+    } else if part.starts_with('+') {
+        "addition"
+    } else if part.starts_with('-') {
+        "deletion"
+    } else {
+        "context"
+    }
+}
+
+fn push_usize(value: usize, output: &mut String) {
+    let mut buf = [0u8; 20];
+    let mut n = value;
+    let mut i = buf.len();
+    loop {
+        i -= 1;
+        buf[i] = b'0' + (n % 10) as u8;
+        n /= 10;
+        if n == 0 {
+            break;
+        }
+    }
+    output.push_str(std::str::from_utf8(&buf[i..]).expect("digits are utf-8"));
+}
+
+fn open_line(line: usize, output: &mut String) {
+    output.push_str("<span class=\"mk-line\" data-line=\"");
+    push_usize(line, output);
+    output.push_str("\">");
+}
+
+fn write_header(info: &crate::FenceInfo, output: &mut String) {
+    output.push_str("<section class=\"mk-codeblock\"><header><span>");
+    escape_into(info.file.as_deref().unwrap_or(&info.language), output);
+    output.push_str(
+        "</span><button type=\"button\" data-markit-copy aria-label=\"Copy code\">Copy</button></header><pre><code class=\"language-",
+    );
+    escape_into(&info.language, output);
+    output.push_str("\">");
+}
+
+/// Retains HTML for every line the highlighter has closed. Append-only fences
+/// rewrite the open line instead of the whole block.
+pub(crate) struct CodeHtml {
+    html: String,
+    prefix_len: usize,
+    stable: usize,
+    line: usize,
+}
+
+impl CodeHtml {
+    pub(crate) fn new(info: &crate::FenceInfo) -> Self {
+        let mut html = String::new();
+        write_header(info, &mut html);
+        open_line(1, &mut html);
+        let prefix_len = html.len();
+        Self {
+            html,
+            prefix_len,
+            stable: 0,
+            line: 1,
+        }
+    }
+
+    pub(crate) fn render(
+        &mut self,
+        code: &str,
+        info: &crate::FenceInfo,
+        runs: &crate::highlight::LexRuns,
+    ) -> String {
+        let stable = runs.stable_byte.min(code.len());
+        if stable < self.stable {
+            *self = Self::new(info);
+        }
+        if stable > self.stable {
+            let (line, at_line_start) = write_runs(
+                &mut self.html,
+                code,
+                info,
+                runs,
+                self.stable,
+                stable,
+                self.line,
+            );
+            debug_assert!(at_line_start);
+            self.line = line;
+            self.stable = stable;
+            self.prefix_len = self.html.len();
+        }
+        let saved = self.prefix_len;
+        let (_line, at_line_start) = write_runs(
+            &mut self.html,
+            code,
+            info,
+            runs,
+            stable,
+            code.len(),
+            self.line,
+        );
+        if info.diff && !at_line_start {
+            self.html.push_str("</span>");
+        }
+        self.html.push_str("</span></code></pre></section>\n");
+        let result = self.html.clone();
+        self.html.truncate(saved);
+        result
+    }
+}
+
+/// Write highlighted `code[from..to]` into an already-open line span.
+/// Returns the line number of the span left open, and whether that span is
+/// still at column zero.
+fn write_runs(
+    output: &mut String,
+    code: &str,
+    info: &crate::FenceInfo,
+    runs: &crate::highlight::LexRuns,
+    from: usize,
+    to: usize,
+    mut line: usize,
+) -> (usize, bool) {
+    let start = runs.runs.partition_point(|(end, _)| *end <= from);
+    let mut byte = if start == 0 {
+        0
+    } else {
+        runs.runs[start - 1].0
+    };
     let mut at_line_start = true;
-    crate::highlight::for_each_run(code, &info.language, |text, light, dark| {
+    for &(end, id) in &runs.runs[start..] {
+        if byte >= to {
+            break;
+        }
+        let (light, dark, _, _) = crate::highlight::PALETTE[id as usize];
+        let text = &code[byte..end];
+        let mut local = 0usize;
         for part in text.split_inclusive('\n') {
-            if at_line_start && info.diff {
-                let kind = if part.starts_with("+++")
-                    || part.starts_with("---")
-                    || part.starts_with("@@")
-                    || part.starts_with("diff ")
-                {
-                    "meta"
-                } else if part.starts_with('+') {
-                    "addition"
-                } else if part.starts_with('-') {
-                    "deletion"
-                } else {
-                    "context"
-                };
-                output.push_str(&format!("<span class=\"mk-diff-{kind}\">"));
+            let part_start = byte + local;
+            let part_end = part_start + part.len();
+            local = part_end - byte;
+            if part_end <= from {
+                continue;
             }
-            output.push_str(&format!(
-                "<span style=\"--mk-light:{};--mk-dark:{}\">{}</span>",
-                light,
-                dark,
-                escape(part)
-            ));
+            if part_start >= to {
+                break;
+            }
+            if at_line_start && info.diff {
+                output.push_str("<span class=\"mk-diff-");
+                output.push_str(diff_kind(part));
+                output.push_str("\">");
+            }
+            output.push_str("<span style=\"--mk-light:");
+            output.push_str(light);
+            output.push_str(";--mk-dark:");
+            output.push_str(dark);
+            output.push_str("\">");
+            escape_into(part, output);
+            output.push_str("</span>");
             if part.ends_with('\n') {
                 if info.diff {
                     output.push_str("</span>");
                 }
                 output.push_str("</span>");
                 line += 1;
-                output.push_str(&format!("<span class=\"mk-line\" data-line=\"{line}\">"));
+                open_line(line, output);
                 at_line_start = true;
             } else {
                 at_line_start = false;
             }
         }
-    });
-    if info.diff && !at_line_start {
-        output.push_str("</span>");
+        byte = end;
     }
-    output.push_str("</span></code></pre></section>\n");
-    output
+    (line, at_line_start)
+}
+
+fn render_code(code: &str, info: &crate::FenceInfo) -> String {
+    let runs = crate::highlight::lex_runs(code, &info.language);
+    CodeHtml::new(info).render(code, info, &runs)
 }
 
 pub fn render_html(source: &str) -> String {
     let mut output = String::with_capacity(source.len());
     render_html_into(source, &mut output);
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{render_code, CodeHtml};
+
+    #[test]
+    fn incremental_code_html_matches_a_fresh_render() {
+        let samples = [
+            ("rust", ""),
+            ("rust", "let x = 1;"),
+            ("rust", "let x = 1;\n"),
+            ("rust", "fn main() {\n    let s = \"hi\";\n}\n"),
+            ("rust", "/* comment\nstill */\nfn main() {\nlet s = r#\"a\nb\"#;\n}\n"),
+            ("python", "x = \"\"\"long\nstr\"\"\"\ny\n"),
+            ("diff", "diff --git a/f.rs b/f.rs\n--- a/f.rs\n+++ b/f.rs\n@@ -1 +1 @@\n-old\n+new\n context\n"),
+            ("tsx", "<Component\n property=\"value\"/>\n<!-- c\nomment -->\n😀\n"),
+            ("sql", "SELECT name FROM t WHERE x IS NOT NULL\n"),
+            ("html", "<div title=\"😀\">hello & world</div>\n"),
+            ("plain", "not a language\nsecond\n"),
+        ];
+        for (language, sample) in samples {
+            let info = crate::fence_info(language);
+            let mut html = CodeHtml::new(&info);
+            let mut built = String::new();
+            for ch in sample.chars() {
+                built.push(ch);
+                let runs = crate::highlight::lex_runs(&built, &info.language);
+                let incremental = html.render(&built, &info, &runs);
+                let full = render_code(&built, &info);
+                assert_eq!(incremental, full, "{language} {built:?}");
+            }
+        }
+    }
 }
