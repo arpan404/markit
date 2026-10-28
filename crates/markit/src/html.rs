@@ -455,14 +455,10 @@ fn write_runs(
     to: usize,
     mut line: usize,
 ) -> (usize, bool) {
-    let start = runs.runs.partition_point(|(end, _)| *end <= from);
-    let mut byte = if start == 0 {
-        0
-    } else {
-        runs.runs[start - 1].0
-    };
+    let start = runs.first_ending_after(from);
+    let mut byte = if start == 0 { 0 } else { runs.end(start - 1) };
     let mut at_line_start = true;
-    for &(end, id) in &runs.runs[start..] {
+    for (end, id) in runs.from(start) {
         if byte >= to {
             break;
         }
