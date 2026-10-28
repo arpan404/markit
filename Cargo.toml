@@ -18,3 +18,12 @@ serde_json = "1"
 lto = "thin"
 codegen-units = 1
 strip = "debuginfo"
+
+# Size-first build for the web package: whole-program LTO, size-optimized code,
+# no symbol names. `wasm-opt -Oz` on top made the gzip size larger, so it is not run.
+[profile.web]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+strip = true
+panic = "abort"
