@@ -3,6 +3,9 @@ export interface HighlightedCode { language: string; plain: boolean; tokens: Cod
 export interface MarkitReference { kind: 'file' | 'thread' | 'pull_request'; target: string }
 export interface MarkitOptions {
   workerURL?: URL | string;
+  /** Renderers share one worker and Wasm instance per worker URL by default.
+   * `dedicated` starts a private worker that `destroy()` terminates. */
+  worker?: 'shared' | 'dedicated';
   /** WebGPU draws eligible large ASCII source views. Auto currently uses DOM until benchmarked. */
   codeRendering?: 'auto' | 'dom' | 'webgpu';
   onLink?: (url: string) => void;
@@ -17,3 +20,5 @@ export class MarkitRenderer {
   highlight(source: string, language: string, options?: { grammar?: boolean }): Promise<HighlightedCode>;
   destroy(): void;
 }
+/** Terminates the shared workers. Live renderers start a new one on their next request. */
+export function terminateMarkitWorkers(): void;
