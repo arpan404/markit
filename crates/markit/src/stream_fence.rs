@@ -11,6 +11,11 @@ pub(crate) struct OpenFence {
     html: Option<crate::html::CodeHtml>,
     doc: Option<crate::document::FenceDoc>,
     body_utf16: usize,
+    /// Source end of the code last rendered, initially the code the parser
+    /// rendered when the fence was found.
+    rendered_end: usize,
+    /// No fast-path render yet: the last block came from the parser.
+    pub(crate) fresh: bool,
 }
 
 impl OpenFence {
@@ -34,7 +39,10 @@ impl OpenFence {
             html: None,
             doc: None,
             body_utf16: crate::highlight::utf16_len(&source[..opening_end]),
+            rendered_end: opening_end,
+            fresh: true,
         };
+        fence.rendered_end = opening_end + fence.code(source).len();
         fence.continue_source(source).then_some(fence)
     }
 
@@ -59,6 +67,49 @@ impl OpenFence {
         width >= self.width && line[width..].trim_matches([' ', '\t']).is_empty()
     }
 
+    /// Fence body as pulldown reports it. It only grows while the fence is open.
+    fn code<'a>(&self, source: &'a str) -> &'a str {
+        let code = &source[self.body..];
+        // pulldown omits an unfinished whitespace-only last line.
+        let line = code.rfind('\n').map_or(0, |at| at + 1);
+        if code[line..].bytes().all(|b| matches!(b, b' ' | b'\t')) {
+            &code[..line]
+        } else {
+            code
+        }
+    }
+
+    /// Native-only update that reports what changed instead of building the
+    /// whole document. [`document`](Self::document) rebuilds it on demand.
+    pub(crate) fn rendered_end(&self) -> usize {
+        self.rendered_end
+    }
+
+    pub(crate) fn native_change(&mut self, source: &str) -> crate::document::FenceChange {
+        self.fresh = false;
+        let code = self.code(source);
+        self.rendered_end = self.body + code.len();
+        let info = crate::fence_info(&self.info);
+        let runs = crate::highlight::lex_runs(code, &info.language);
+        self.doc
+            .get_or_insert_with(|| crate::document::FenceDoc::new(&info))
+            .change(code, &info, &runs)
+    }
+
+    /// The native document of the last [`native_change`](Self::native_change).
+    pub(crate) fn document(&self, source: &str) -> crate::Document {
+        let info = crate::fence_info(&self.info);
+        let code = &source[self.body..self.rendered_end];
+        match self.doc.as_ref() {
+            Some(doc) => doc.current(code, &info),
+            None => crate::document::FenceDoc::new(&info).render(
+                code,
+                &info,
+                &crate::highlight::lex_runs(code, &info.language),
+            ),
+        }
+    }
+
     pub(crate) fn render(
         &mut self,
         source: &str,
@@ -67,15 +118,9 @@ impl OpenFence {
         web: bool,
         codes: &mut Vec<super::WebCode>,
     ) -> Arc<super::RenderedBlock> {
-        let code = &source[self.body..];
-        // pulldown omits an unfinished whitespace-only last line.
-        let line = code.rfind('\n').map_or(0, |at| at + 1);
-        let code = if code[line..].bytes().all(|b| matches!(b, b' ' | b'\t')) {
-            &code[..line]
-        } else {
-            code
-        };
-        let code_text: &str = code;
+        self.fresh = false;
+        let code_text = self.code(source);
+        self.rendered_end = self.body + code_text.len();
         let info = crate::fence_info(&self.info);
         let runs = (!web).then(|| crate::highlight::lex_runs(code_text, &info.language));
         let mut html = String::new();

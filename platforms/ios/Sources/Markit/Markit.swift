@@ -87,15 +87,30 @@ public enum Markit {
 }
 
 /// Each stream serializes access to its Rust handle. Release occurs in deinit.
+/// Patches cross the bridge as MKNP v2 binary, not JSON: an open code fence
+/// sends only its appended text and changed spans, applied to the block this
+/// stream already holds. The returned `MarkitPatch` is unchanged.
 public final class MarkitStream: @unchecked Sendable {
     private let handle: OpaquePointer
     private let lock = NSLock()
+    /// Current blocks, the base for fence extensions.
+    private var documents: [MarkitDocument] = []
+    private var failed = false
     public init() { handle = markit_stream_new()! }
     deinit { markit_stream_free(handle) }
     public func append(_ delta: String, finalized: Bool = false) throws -> MarkitPatch {
         lock.lock(); defer { lock.unlock() }
+        // A rejected patch leaves Rust ahead of `documents`; later extensions
+        // would apply to the wrong base, so the stream stays failed.
+        guard !failed else { throw MarkitBinaryError.malformed }
         let bytes = Array(delta.utf8)
-        let buffer = bytes.withUnsafeBufferPointer { markit_stream_append(handle, $0.baseAddress, $0.count, finalized ? 1 : 0) }
-        return try Markit.decode(buffer)
+        let buffer = bytes.withUnsafeBufferPointer { markit_stream_append_patch(handle, $0.baseAddress, $0.count, finalized ? 1 : 0) }
+        do {
+            return try NativePatchReader.apply(buffer, to: &documents)
+        } catch {
+            // Status 1/2 reject the input before Rust changes state.
+            if buffer.status == 0 || buffer.status == 3 { failed = true }
+            throw error
+        }
     }
 }

@@ -224,6 +224,100 @@ pub fn encode_native_patch(patch: &crate::RenderPatch) -> Result<Vec<u8>, Binary
     Ok(out)
 }
 
+/// MKNP version 2 header: version, replace_from, finalized, source_bytes,
+/// parsed_bytes, block count. Each block then starts with a kind word.
+fn patch_v2_header(
+    out: &mut Vec<u8>,
+    replace_from: usize,
+    finalized: bool,
+    source_bytes: usize,
+    parsed_bytes: usize,
+    blocks: usize,
+) -> Result<(), BinaryError> {
+    out.extend_from_slice(b"MKNP");
+    put(out, 2);
+    put(out, word(replace_from)?);
+    put(out, u32::from(finalized));
+    put(out, word(source_bytes)?);
+    put(out, word(parsed_bytes)?);
+    put(out, word(blocks)?);
+    Ok(())
+}
+
+fn put_document(out: &mut Vec<u8>, document: &Document) -> Result<(), BinaryError> {
+    let bytes = encode_document_binary(document)?;
+    put(out, word(bytes.len())?);
+    out.extend_from_slice(&bytes);
+    Ok(())
+}
+
+/// Version 2 of [`encode_native_patch`] with whole documents only (kind 0).
+pub(crate) fn encode_native_patch_v2(patch: &crate::RenderPatch) -> Result<Vec<u8>, BinaryError> {
+    let mut out = Vec::new();
+    patch_v2_header(
+        &mut out,
+        patch.replace_from,
+        patch.finalized,
+        patch.source_bytes,
+        patch.parsed_bytes,
+        patch.blocks.len(),
+    )?;
+    for block in &patch.blocks {
+        let Some(document) = block.document.as_ref() else {
+            return Err(BinaryError::TooLarge);
+        };
+        put(&mut out, 0);
+        put_document(&mut out, document)?;
+    }
+    Ok(out)
+}
+
+/// One open-fence update. An extension (kind 1) carries the kept UTF-16
+/// prefix of the host's text, the head span count, the kept range of the
+/// host's spans, and an MKBP document holding the appended text, the new
+/// head and tail spans, and the blocks.
+pub(crate) fn encode_fence_patch(
+    index: usize,
+    change: &crate::document::FenceChange,
+    finalized: bool,
+    source_bytes: usize,
+    parsed_bytes: usize,
+) -> Result<Vec<u8>, BinaryError> {
+    use crate::document::FenceChange;
+    let mut out = Vec::new();
+    match change {
+        FenceChange::Unchanged => {
+            patch_v2_header(
+                &mut out,
+                index + 1,
+                finalized,
+                source_bytes,
+                parsed_bytes,
+                0,
+            )?;
+        }
+        FenceChange::Replace(document) => {
+            patch_v2_header(&mut out, index, finalized, source_bytes, parsed_bytes, 1)?;
+            put(&mut out, 0);
+            put_document(&mut out, document)?;
+        }
+        FenceChange::Extend(extension) => {
+            patch_v2_header(&mut out, index, finalized, source_bytes, parsed_bytes, 1)?;
+            put(&mut out, 1);
+            for n in [
+                extension.keep_text_utf16,
+                extension.head,
+                extension.keep_from,
+                extension.keep_to,
+            ] {
+                put(&mut out, word(n)?);
+            }
+            put_document(&mut out, &extension.document)?;
+        }
+    }
+    Ok(out)
+}
+
 fn rgb(s: &str) -> Option<u32> {
     // Only canonical lowercase RGB can be reconstructed field-for-field.
     if s.len() != 7 || !s.starts_with('#') || s.bytes().any(|b| b.is_ascii_uppercase()) {

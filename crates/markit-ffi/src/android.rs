@@ -1,6 +1,6 @@
 use jni::{
     objects::{JClass, JString},
-    sys::{jboolean, jint, jlong, jstring},
+    sys::{jboolean, jbyteArray, jint, jlong, jstring},
     JNIEnv,
 };
 use std::{
@@ -122,6 +122,50 @@ pub extern "system" fn Java_dev_markit_Markit_nativeAppend(
         }
         serde_json::to_string(&stream.append(&delta, finalized != 0)).map_err(|e| e.to_string())
     })
+}
+/// MKNP v2 bytes (see docs/binary-transport.md). Throws like nativeAppend.
+#[no_mangle]
+pub extern "system" fn Java_dev_markit_Markit_nativeAppendPatch(
+    mut env: JNIEnv,
+    _: JClass,
+    id: jlong,
+    delta: JString,
+    finalized: jboolean,
+) -> jbyteArray {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+        || -> Result<Vec<u8>, String> {
+            let delta: String = env.get_string(&delta).map_err(|e| e.to_string())?.into();
+            let stream = streams()
+                .lock()
+                .map_err(|e| e.to_string())?
+                .get(&id)
+                .cloned()
+                .ok_or("Closed stream")?;
+            let mut stream = stream.lock().map_err(|e| e.to_string())?;
+            if stream.source().len() + delta.len() > 8 * 1024 * 1024 {
+                return Err("Document exceeds 8 MiB".into());
+            }
+            stream
+                .append_native_patch(&delta, finalized != 0)
+                .map_err(|e| format!("{e:?}"))
+        },
+    ));
+    let bytes = match result {
+        Ok(Ok(bytes)) => bytes,
+        other => {
+            let error = match other {
+                Ok(Err(error)) => error,
+                _ => "Markit rendering failed".into(),
+            };
+            if !env.exception_check().unwrap_or(true) {
+                let _ = env.throw_new("java/lang/IllegalStateException", error);
+            }
+            return ptr::null_mut();
+        }
+    };
+    env.byte_array_from_slice(&bytes)
+        .map(|array| array.into_raw())
+        .unwrap_or(ptr::null_mut())
 }
 #[no_mangle]
 pub extern "system" fn Java_dev_markit_Markit_nativeFreeStream(_: JNIEnv, _: JClass, id: jlong) {

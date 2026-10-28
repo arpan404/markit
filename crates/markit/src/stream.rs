@@ -53,6 +53,21 @@ pub struct StreamRenderer {
     html_only: bool,
     native_only: bool,
     web: bool,
+    /// The last block is an open fence whose document was sent as an MKNP v2
+    /// extension and not rebuilt. It is rebuilt before any other update.
+    stale_fence: bool,
+}
+
+/// Result of an append whose open-fence change was not materialized.
+enum Appended {
+    Patch(RenderPatch),
+    Fence {
+        index: usize,
+        change: crate::document::FenceChange,
+        finalized: bool,
+        source_bytes: usize,
+        parsed_bytes: usize,
+    },
 }
 
 impl StreamRenderer {
@@ -91,10 +106,85 @@ impl StreamRenderer {
     }
 
     pub fn append(&mut self, delta: &str, finalized: bool) -> RenderPatch {
+        match self.append_with(delta, finalized, false) {
+            Appended::Patch(patch) => patch,
+            Appended::Fence { .. } => unreachable!("only lazy appends defer fences"),
+        }
+    }
+
+    /// Append and encode the update as an MKNP version 2 patch. In a native
+    /// stream an open fence sends only its changed suffix, so a long live
+    /// fence costs time and bytes proportional to each append rather than to
+    /// the fence. Other streams send whole documents. See
+    /// docs/binary-transport.md.
+    pub fn append_native_patch(
+        &mut self,
+        delta: &str,
+        finalized: bool,
+    ) -> Result<Vec<u8>, crate::BinaryError> {
+        let lazy = self.native_only;
+        match self.append_with(delta, finalized, lazy) {
+            Appended::Patch(patch) => crate::binary::encode_native_patch_v2(&patch),
+            Appended::Fence {
+                index,
+                change,
+                finalized,
+                source_bytes,
+                parsed_bytes,
+            } => crate::binary::encode_fence_patch(
+                index,
+                &change,
+                finalized,
+                source_bytes,
+                parsed_bytes,
+            ),
+        }
+    }
+
+    fn materialize_fence(&mut self) {
+        if !std::mem::take(&mut self.stale_fence) {
+            return;
+        }
+        if let (Some(fence), Some(last)) = (self.open_fence.as_ref(), self.blocks.last_mut()) {
+            *last = Arc::new(RenderedBlock {
+                codes: Vec::new(),
+                html: String::new(),
+                document: Some(fence.document(&self.source)),
+            });
+        }
+    }
+
+    fn append_with(&mut self, delta: &str, finalized: bool, lazy: bool) -> Appended {
+        self.materialize_fence();
         self.source.push_str(delta);
         if let Some(mut fence) = self.open_fence.take() {
-            if fence.continue_source(&self.source) {
+            if lazy && fence.continue_source(&self.source) {
+                let fresh = fence.fresh;
+                let mut change = fence.native_change(&self.source);
+                if let crate::document::FenceChange::Replace(document) = &change {
+                    // The parser already sent this fence; skip an identical copy.
+                    if fresh
+                        && self.blocks.last().and_then(|block| block.document.as_ref())
+                            == Some(document)
+                    {
+                        change = crate::document::FenceChange::Unchanged;
+                    }
+                }
+                let index = self.blocks.len() - 1;
+                self.stale_fence = true;
+                self.open_fence = Some(fence);
+                return Appended::Fence {
+                    index,
+                    change,
+                    finalized,
+                    source_bytes: self.source.len(),
+                    parsed_bytes: self.source.len() - self.settled,
+                };
+            }
+            if !lazy && fence.continue_source(&self.source) {
                 let mut codes = Vec::new();
+                let fresh = fence.fresh;
+                let before = fence.rendered_end();
                 let next = fence.render(
                     &self.source,
                     self.html_only,
@@ -103,7 +193,10 @@ impl StreamRenderer {
                     &mut codes,
                 );
                 let last = self.blocks.len() - 1;
-                let changed = self.blocks[last] != next;
+                // A longer fence body always changes the block. Comparing every
+                // span would make each append linear in the fence length.
+                let grew = !fresh && fence.rendered_end() != before;
+                let changed = grew || self.blocks[last] != next;
                 let replace_from = if changed { last } else { last + 1 };
                 let blocks = if changed {
                     self.blocks[last] = next.clone();
@@ -112,13 +205,13 @@ impl StreamRenderer {
                     Vec::new()
                 };
                 self.open_fence = Some(fence);
-                return RenderPatch {
+                return Appended::Patch(RenderPatch {
                     replace_from,
                     blocks,
                     finalized,
                     source_bytes: self.source.len(),
                     parsed_bytes: self.source.len() - self.settled,
-                };
+                });
             }
         }
         let mut prepared = crate::math::prepare(&self.source[self.settled..]);
@@ -305,12 +398,12 @@ impl StreamRenderer {
             self.settled += ranges[stable - 1].end;
             self.settled_count += stable;
         }
-        RenderPatch {
+        Appended::Patch(RenderPatch {
             replace_from,
             blocks,
             finalized,
             source_bytes: self.source.len(),
             parsed_bytes,
-        }
+        })
     }
 }
