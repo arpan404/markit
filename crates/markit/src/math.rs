@@ -1,9 +1,10 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
-use latex_rust::{Dim, MathFont, MathStyle, PngOptions, SvgOptions};
+use latex_rust::{BoxContent, Dim, MathBox, MathFont, MathStyle, PngOptions, SvgOptions};
 use serde::{Deserialize, Serialize};
 use std::{
     borrow::Cow,
-    cell::RefCell,
+    cell::{OnceCell, RefCell},
+    rc::Rc,
     sync::{Arc, OnceLock},
 };
 
@@ -16,7 +17,7 @@ pub struct MathVisual {
 }
 static FONT: OnceLock<MathFont> = OnceLock::new();
 thread_local! {
-    static CACHE: RefCell<crate::cache::Cache<(String, bool, MathOutput), Arc<MathVisual>>> =
+    static CACHE: RefCell<crate::cache::Cache<(String, bool), Rc<CachedFormula>>> =
         RefCell::new(crate::cache::Cache::new(4 * 1024 * 1024));
 }
 
@@ -33,8 +34,6 @@ pub fn render_math(tex: &str, display: bool) -> Option<Arc<MathVisual>> {
     render_visual(tex, display, MathOutput::Both)
 }
 
-// HTML embeds SVG paths and never consumes the native bitmap. Keep its cache
-// separate so a web render cannot satisfy a later native request without pixels.
 pub(crate) fn render_svg(tex: &str, display: bool) -> Option<Arc<MathVisual>> {
     render_visual(tex, display, MathOutput::Svg)
 }
@@ -43,14 +42,110 @@ pub(crate) fn render_pixels(tex: &str, display: bool) -> Option<Arc<MathVisual>>
     render_visual(tex, display, MathOutput::Pixels)
 }
 
+// Layouts are immutable. Each output, including a failed output, is derived at
+// most once while the formula is resident in the thread's bounded cache.
+struct CachedFormula {
+    tree: Option<MathBox>,
+    layout_weight: usize,
+    svg: OnceCell<Option<Arc<MathVisual>>>,
+    pixels: OnceCell<Option<Arc<MathVisual>>>,
+    both: OnceCell<Option<Arc<MathVisual>>>,
+}
+
+impl CachedFormula {
+    fn output(&self, display: bool, output: MathOutput) -> Option<Arc<MathVisual>> {
+        let slot = match output {
+            MathOutput::Svg => &self.svg,
+            MathOutput::Pixels => &self.pixels,
+            MathOutput::Both => &self.both,
+        };
+        slot.get_or_init(|| {
+            let tree = self.tree.as_ref()?;
+            if output == MathOutput::Both {
+                let svg = self.output(display, MathOutput::Svg)?;
+                let pixels = self.output(display, MathOutput::Pixels)?;
+                return Some(Arc::new(MathVisual {
+                    svg: svg.svg.clone(),
+                    png: pixels.png.clone(),
+                    width: pixels.width,
+                    height: pixels.height,
+                }));
+            }
+            derive_visual(tree, display, output)
+        })
+        .clone()
+    }
+
+    fn weight(&self) -> usize {
+        self.layout_weight
+            + [&self.svg, &self.pixels, &self.both]
+                .into_iter()
+                .filter_map(|slot| slot.get().and_then(Option::as_ref))
+                .map(|v| {
+                    v.svg.capacity() + v.png.capacity() + std::mem::size_of::<MathVisual>() + 32
+                })
+                .sum::<usize>()
+    }
+}
+
+fn layout_weight(tree: &MathBox) -> usize {
+    std::mem::size_of::<MathBox>()
+        + match &tree.content {
+            BoxContent::HList(children)
+            | BoxContent::VList(children)
+            | BoxContent::Overlap(children) => {
+                (children.capacity() - children.len()) * std::mem::size_of::<MathBox>()
+                    + children.iter().map(layout_weight).sum::<usize>()
+            }
+            BoxContent::Color(_, inner)
+            | BoxContent::BackColor(_, inner)
+            | BoxContent::Frame { inner, .. } => layout_weight(inner),
+            _ => 0,
+        }
+}
+
 fn render_visual(tex: &str, display: bool, output: MathOutput) -> Option<Arc<MathVisual>> {
     if tex.len() > 2048 || tex.trim().is_empty() {
         return None;
     }
-    let key = (tex.to_owned(), display, output);
-    if let Some(cached) = CACHE.with(|cache| cache.borrow_mut().get(&key)) {
-        return Some(cached);
+    let cached = CACHE.with(|cache| {
+        cache
+            .borrow_mut()
+            .get_by(&(tex, display), |(source, style)| {
+                source == tex && *style == display
+            })
+    });
+    let is_new = cached.is_none();
+    let formula = cached.unwrap_or_else(|| {
+        let tree = prepare_layout(tex, display);
+        let layout_weight = tree.as_ref().map_or(0, layout_weight)
+            + tex.len()
+            + std::mem::size_of::<CachedFormula>()
+            + 128;
+        Rc::new(CachedFormula {
+            tree,
+            layout_weight,
+            svg: OnceCell::new(),
+            pixels: OnceCell::new(),
+            both: OnceCell::new(),
+        })
+    });
+    let before = formula.weight();
+    let result = formula.output(display, output);
+    // Reinsert to account for newly materialized strings. Layout and outputs
+    // share one eviction lifetime and one total 4 MiB budget.
+    if is_new || formula.weight() != before {
+        CACHE.with(|cache| {
+            let key = (tex.to_owned(), display);
+            let mut cache = cache.borrow_mut();
+            cache.remove(&key);
+            cache.insert(key, formula.clone(), formula.weight());
+        });
     }
+    result
+}
+
+fn prepare_layout(tex: &str, display: bool) -> Option<MathBox> {
     let font = FONT.get_or_init(|| MathFont::stix_two_math().expect("bundled STIX font is valid"));
     let ast = latex_rust::parse(tex).ok()?;
     let tree = latex_rust::layout(
@@ -81,13 +176,18 @@ fn render_visual(tex: &str, display: bool, output: MathOutput) -> Option<Arc<Mat
     if height_em > 48 || width_em.saturating_mul(height_em) > 2048 {
         return None;
     }
+    Some(tree)
+}
+
+fn derive_visual(tree: &MathBox, display: bool, output: MathOutput) -> Option<Arc<MathVisual>> {
+    let font = FONT.get_or_init(|| MathFont::stix_two_math().expect("bundled STIX font is valid"));
     let svg = if output != MathOutput::Pixels {
         let svg_options = SvgOptions {
             font_size_pt: Dim::from_i64(16),
             display,
             ..SvgOptions::new()
         };
-        let svg = latex_rust::render_svg(&tree, font, &svg_options).ok()?;
+        let svg = latex_rust::render_svg(tree, font, &svg_options).ok()?;
         svg[svg.find("<svg")?..].replace("#000000", "currentColor")
     } else {
         String::new()
@@ -98,7 +198,7 @@ fn render_visual(tex: &str, display: bool, output: MathOutput) -> Option<Arc<Mat
             display,
             ..PngOptions::new()
         };
-        let png = latex_rust::render_png(&tree, font, &png_options).ok()?;
+        let png = latex_rust::render_png(tree, font, &png_options).ok()?;
         let width = u32::from_be_bytes(png.get(16..20)?.try_into().ok()?);
         let height = u32::from_be_bytes(png.get(20..24)?.try_into().ok()?);
         (STANDARD.encode(png), width, height)
@@ -111,8 +211,6 @@ fn render_visual(tex: &str, display: bool, output: MathOutput) -> Option<Arc<Mat
         width,
         height,
     });
-    let weight = key.0.len() + visual.svg.len() + visual.png.len() + 128;
-    CACHE.with(|cache| cache.borrow_mut().insert(key, visual.clone(), weight));
     Some(visual)
 }
 
@@ -389,6 +487,67 @@ mod tests {
                 &vector,
                 &super::render_svg(tex, display).unwrap()
             ));
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "math_probe.rs"]
+mod probe;
+
+#[cfg(test)]
+mod parity {
+    use super::*;
+    #[test]
+    fn mixed_outputs_preserve_baseline_svg_and_png_bytes() {
+        for (tex, display, svg, png_hash) in [
+            (
+                "x^2+1",
+                false,
+                include_str!("math_fixtures/x2.svg"),
+                "015d8991f070e38f45570e32300119af7a2c11a781c16b9d066e84de05dcf681",
+            ),
+            (
+                r"\sum_{i=1}^{n}\frac{i^2}{2}+1",
+                false,
+                include_str!("math_fixtures/sum_fraction.svg"),
+                "e22f62363434c6f41aaab538aef6fb000b676abb9965e9b274924cf953747bc1",
+            ),
+            (
+                r"\int_0^\infty e^{-x^2}\,dx=\frac{\sqrt{\pi}}{2}",
+                true,
+                include_str!("math_fixtures/display_math.svg"),
+                "5595943b2aeae756861dcdb3dd79b95e3243635fe269bb4da62007da21ddc34e",
+            ),
+        ] {
+            for order in [
+                [MathOutput::Svg, MathOutput::Pixels, MathOutput::Both],
+                [MathOutput::Both, MathOutput::Pixels, MathOutput::Svg],
+                [MathOutput::Pixels, MathOutput::Both, MathOutput::Svg],
+            ] {
+                CACHE.with(|c| *c.borrow_mut() = crate::cache::Cache::new(4 * 1024 * 1024));
+                for output in order {
+                    let visual = render_visual(tex, display, output).unwrap();
+                    if output != MathOutput::Pixels {
+                        assert_eq!(visual.svg, svg);
+                    } else {
+                        assert!(visual.svg.is_empty());
+                    }
+                    if output != MathOutput::Svg {
+                        assert_eq!(
+                            MathFont::sha256_hex(&STANDARD.decode(&visual.png).unwrap()),
+                            png_hash
+                        );
+                    } else {
+                        assert!(visual.png.is_empty());
+                    }
+                }
+            }
+        }
+        for _ in 0..3 {
+            assert!(render_svg(r"\frac{", false).is_none());
+            assert!(render_pixels(r"\frac{", false).is_none());
+            assert!(render_math(r"\frac{", false).is_none());
         }
     }
 }
