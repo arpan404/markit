@@ -22,7 +22,30 @@ Web `onReference`, UIKit `onReference`, and Android `onReference` receive a refe
 
 Image resolvers must return bytes the host has already authorized. Web supports PNG/JPEG/WebP/GIF Blob data or PNG Uint8Array data. Native callbacks return UIImage/Bitmap objects. The renderer performs no network requests for images. Abort signals and view disposal release pending web loads and Blob URLs.
 
-For a React transcript, create the renderer in an effect, call `render` from a separate text-update effect, and call `destroy` during cleanup. Do not recreate the worker on every token. In SwiftUI use `MarkitText` as a scrolling region. In Android Compose embed MarkitView with AndroidView and close it in the owning disposal callback.
+### Web workers
+
+Every `MarkitRenderer` created with the same `workerURL` shares one Web Worker and one Wasm instance, started on first use. Each renderer owns a stream inside that worker, and a render sends only the appended text when the source grew. `destroy()` rejects that renderer's pending requests and frees its stream without stopping the shared worker. If the worker fails or `terminateMarkitWorkers()` is called, the next request starts a new worker and renderers resend their source. Pass `worker: 'dedicated'` for the previous behavior: a private worker that `destroy()` terminates.
+
+### React
+
+`@markit/web/react` exports a component and a hook. React is an optional peer dependency; the core package has no runtime dependencies.
+
+```jsx
+import { Markit, useMarkit } from '@markit/web/react';
+import '@markit/web/style.css';
+
+// Declarative: re-render with longer text while streaming.
+<Markit markdown={message.text} finalized={message.done} lazy onReference={openReference} />
+
+// Imperative: stream tokens without putting the text in React state.
+function LiveMessage({ source }) {
+  const markit = useMarkit();
+  useEffect(() => source.subscribe({ token: t => markit.append(t), done: () => markit.finish() }), [source, markit]);
+  return <div ref={markit.ref} />;
+}
+```
+
+The renderer is created when the element attaches and destroyed when it detaches, so StrictMode's double mount creates and frees a stream but never a worker; the latest text is replayed into the new renderer. Callback props are read when used, so new closures do not recreate anything. `<Markit>` is memoized, and each text change is one `render` call; the renderer keeps one job in flight and one queued, so fast token streams coalesce. `lazy` (or an IntersectionObserver `rootMargin` string) shows plain text until the element is near the viewport, then renders it once. Rendered blocks use `content-visibility: auto`. In SwiftUI use `MarkitText` as a scrolling region. In Android Compose embed MarkitView with AndroidView and close it in the owning disposal callback.
 
 ## Limits
 

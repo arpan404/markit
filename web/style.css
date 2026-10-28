@@ -1,5 +1,6 @@
 .markit { --mk-ink:#24292f; --mk-muted:#6e7781; --mk-border:#d0d7de; --mk-surface:#f6f8fa; color:var(--mk-ink); font:16px/1.65 system-ui,sans-serif; overflow-wrap:anywhere; }
 @media(prefers-color-scheme:dark) { .markit { --mk-ink:#e6edf3; --mk-muted:#8b949e; --mk-border:#30363d; --mk-surface:#161b22; } }
+.markit.mk-pending { white-space:pre-wrap; }
 .markit .mk-block { content-visibility:auto; contain-intrinsic-size:auto 80px; margin:0 0 16px; }
 .markit :is(p,h1,h2,h3,h4,h5,h6,ul,ol,pre,blockquote,table) { margin:0 0 12px; }
 .markit h1 { font-size:1.8em; line-height:1.25; } .markit h2 { font-size:1.4em; } .markit h3 { font-size:1.15em; }
