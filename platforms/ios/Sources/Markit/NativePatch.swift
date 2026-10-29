@@ -92,7 +92,7 @@ enum NativePatchReader {
         spans.reserveCapacity(spanCount)
         for i in 0..<spanCount {
             let at = spansAt + i * 40
-            let start = try r.word(at), end = try r.word(at + 4), tag = try r.word(at + 8)
+            let start = try r.word(at), end = try r.word(at + 4), spanTag = try r.word(at + 8)
             let a = try (0..<7).map { try r.word(at + 12 + $0 * 4) }
             var kind = "", level: Int?, depth: Int?, language: String?, url: String?, file: String?, diff: Bool?
             var light: String?, dark: String?, change: String?, tex: String?, raw: String?, display: Bool?
@@ -100,7 +100,7 @@ enum NativePatchReader {
             var alignment: String?, target: String?, referenceKind: String?
             var alert: String?, label: String?, number: Int?, index: Int?, offset: Int?, checked: Bool?
             var source: String?, tag: String?
-            switch tag {
+            switch spanTag {
             case 1: kind = "heading"; level = a[0]
             case 2: kind = "paragraph"
             case 3: kind = "strong"
