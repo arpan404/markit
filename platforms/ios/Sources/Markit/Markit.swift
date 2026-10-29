@@ -73,9 +73,10 @@ public enum MarkitFlavor: UInt32, Sendable {
     case standard = 0
     case github = 1
 }
-public struct MarkitReference: Sendable {
+public struct MarkitReference: Sendable, Equatable {
     public let kind: String
     public let target: String
+    public init(kind: String, target: String) { self.kind = kind; self.target = target }
 }
 public struct MarkitPatch: Decodable, Sendable {
     public struct Block: Decodable, Sendable { public let document: MarkitDocument }
