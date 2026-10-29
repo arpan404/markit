@@ -63,7 +63,7 @@ enum Appended {
     Patch(RenderPatch),
     Fence {
         index: usize,
-        change: crate::document::FenceChange,
+        change: crate::fence_doc::FenceChange,
         finalized: bool,
         source_bytes: usize,
         parsed_bytes: usize,
@@ -161,13 +161,13 @@ impl StreamRenderer {
             if lazy && fence.continue_source(&self.source) {
                 let fresh = fence.fresh;
                 let mut change = fence.native_change(&self.source);
-                if let crate::document::FenceChange::Replace(document) = &change {
+                if let crate::fence_doc::FenceChange::Replace(document) = &change {
                     // The parser already sent this fence; skip an identical copy.
                     if fresh
                         && self.blocks.last().and_then(|block| block.document.as_ref())
                             == Some(document)
                     {
-                        change = crate::document::FenceChange::Unchanged;
+                        change = crate::fence_doc::FenceChange::Unchanged;
                     }
                 }
                 let index = self.blocks.len() - 1;

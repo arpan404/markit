@@ -9,7 +9,7 @@ pub(crate) struct OpenFence {
     width: usize,
     info: String,
     html: Option<crate::html::CodeHtml>,
-    doc: Option<crate::document::FenceDoc>,
+    doc: Option<crate::fence_doc::FenceDoc>,
     body_utf16: usize,
     /// Source end of the code last rendered, initially the code the parser
     /// rendered when the fence was found.
@@ -85,14 +85,14 @@ impl OpenFence {
         self.rendered_end
     }
 
-    pub(crate) fn native_change(&mut self, source: &str) -> crate::document::FenceChange {
+    pub(crate) fn native_change(&mut self, source: &str) -> crate::fence_doc::FenceChange {
         self.fresh = false;
         let code = self.code(source);
         self.rendered_end = self.body + code.len();
         let info = crate::fence_info(&self.info);
         let runs = crate::highlight::lex_runs(code, &info.language);
         self.doc
-            .get_or_insert_with(|| crate::document::FenceDoc::new(&info))
+            .get_or_insert_with(|| crate::fence_doc::FenceDoc::new(&info))
             .change(code, &info, &runs)
     }
 
@@ -102,7 +102,7 @@ impl OpenFence {
         let code = &source[self.body..self.rendered_end];
         match self.doc.as_ref() {
             Some(doc) => doc.current(code, &info),
-            None => crate::document::FenceDoc::new(&info).render(
+            None => crate::fence_doc::FenceDoc::new(&info).render(
                 code,
                 &info,
                 &crate::highlight::lex_runs(code, &info.language),
@@ -145,7 +145,7 @@ impl OpenFence {
             }
             (!html_only).then(|| {
                 self.doc
-                    .get_or_insert_with(|| crate::document::FenceDoc::new(&info))
+                    .get_or_insert_with(|| crate::fence_doc::FenceDoc::new(&info))
                     .render(code_text, &info, runs)
             })
         } else {

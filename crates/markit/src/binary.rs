@@ -278,12 +278,12 @@ pub(crate) fn encode_native_patch_v2(patch: &crate::RenderPatch) -> Result<Vec<u
 /// head and tail spans, and the blocks.
 pub(crate) fn encode_fence_patch(
     index: usize,
-    change: &crate::document::FenceChange,
+    change: &crate::fence_doc::FenceChange,
     finalized: bool,
     source_bytes: usize,
     parsed_bytes: usize,
 ) -> Result<Vec<u8>, BinaryError> {
-    use crate::document::FenceChange;
+    use crate::fence_doc::FenceChange;
     let mut out = Vec::new();
     match change {
         FenceChange::Unchanged => {

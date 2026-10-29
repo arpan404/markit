@@ -6,6 +6,9 @@ pub use binary::{
 mod cache;
 mod document;
 mod fence;
+mod fence_doc;
+mod flavor;
+mod github;
 #[cfg(feature = "grammars")]
 mod grammar;
 mod highlight;
@@ -23,6 +26,7 @@ pub use web_patch::encode_web_patch;
 
 pub use document::{parse, Block, Document, Span, Style};
 pub use fence::{fence_info, FenceInfo};
+pub use flavor::Flavor;
 pub use highlight::{
     code_document_json, for_each_code_span, highlight, highlight_json, highlight_packed,
     language_alias, BorrowedCodeSpan, CodeToken, HighlightedCode,
@@ -113,9 +117,22 @@ fn parser_with_refs<'a>(
         ) -> Option<(pulldown_cmark::CowStr<'a>, pulldown_cmark::CowStr<'a>)>
         + 'a,
 > {
+    parser_for(source, references, Flavor::Default)
+}
+fn parser_for<'a>(
+    source: &'a str,
+    references: &'a References,
+    flavor: Flavor,
+) -> Parser<
+    'a,
+    impl FnMut(
+            pulldown_cmark::BrokenLink<'a>,
+        ) -> Option<(pulldown_cmark::CowStr<'a>, pulldown_cmark::CowStr<'a>)>
+        + 'a,
+> {
     Parser::new_with_broken_link_callback(
         source,
-        Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS,
+        flavor.options(),
         Some(move |link: pulldown_cmark::BrokenLink<'a>| {
             references
                 .get(&reference_key(&link.reference))
