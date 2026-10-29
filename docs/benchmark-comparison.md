@@ -175,3 +175,30 @@ Caveats:
 - Run the React benchmark in Safari and Firefox, and on mid-range Android Chrome.
 
 Nine batches are retained for each steady-state case. The main statistic is the median of per-call batch averages. The stored p95 is a percentile of batch averages, not production tail latency. See [methodology and reproduction](../benchmarks/README.md) and [raw results](../benchmarks/results/).
+
+## Follow-up validation on macOS, 2026-10-28
+
+The saved Linux release medians compare `perf/beat-ace` with this branch. These are separate runs, not a paired experiment; Ace also moved between runs, so the exact percentage improvement should be treated cautiously.
+
+| Streaming main-thread time | perf/beat-ace | This branch | Ace in this branch's run |
+| --- | ---: | ---: | ---: |
+| 1x CPU | 191.5 ms | 181.1 ms | 239.7 ms |
+| 4x CPU | 597.7 ms | 489.0 ms | 676.3 ms |
+| Core transfer, gzip | 497.4 KB | 500.2 KB | 519.8 KB |
+| First Fraktur outline fetch, gzip | 644 KB | 25.6 KB | Not comparable |
+
+The prose patch retains unchanged DOM nodes. The glyph split trades about 2.9 KB of core download for smaller uncommon-font fetches. See the retained `chromium-linux*.json` files for the underlying samples.
+
+The initial macOS browser failures were stale generated Wasm bindings, missing the worker's glyph-loading exports and chunk files. Rebuilding restored all 31 Playwright tests. Rust tests and Clippy also passed. Homebrew Rust lacked the Wasm target; the rustup compiler had the target, but its linker needed its LLVM library directory supplied through a temporary wrapper. These are local toolchain workarounds, not library changes.
+
+A proposed text-node `appendData` fast path was rejected. The exploratory five-run 4x profiler medians were 351 ms before and 390 ms after. This did not establish a win, so the implementation was removed. The profiler now resolves its checkout relative to its script instead of assuming `/workspace/markit`. No additional rendering optimization is included in this follow-up.
+
+Fresh macOS release results use three runs per CPU setting, Chromium 156.0.8078.4, Rust 1.98.0, and pinned Ace `2502a66`. They validate the final branch against Ace on this host; they are not a new measurement of the base branch.
+
+| Metric | Markit | Ace |
+| --- | ---: | ---: |
+| 1x CPU | 128.1 ms | 148.1 ms |
+| 4x CPU | 408.4 ms | 522.5 ms |
+| Transfer, gzip | 497.1 KB | 517.5 KB |
+
+Raw samples are in [1x](../web/bench/results/chromium-macos.json) and [4x](../web/bench/results/chromium-macos-cpu4x.json). Existing harness caveats above still apply.

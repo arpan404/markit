@@ -1,6 +1,7 @@
 import { chromium } from '@playwright/test';
 import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path';
-const root='/workspace/markit/web';
+import { fileURLToPath } from 'node:url';
+const root=fileURLToPath(new URL('../', import.meta.url));
 const types={'.js':'text/javascript','.html':'text/html','.css':'text/css','.wasm':'application/wasm','.otf':'font/otf','.woff2':'font/woff2'};
 const server=http.createServer((q,r)=>{const f=path.join(root,decodeURIComponent(q.url.split('?')[0]));if(!fs.existsSync(f)||fs.statSync(f).isDirectory()){r.writeHead(404);r.end();return;}r.writeHead(200,{'content-type':types[path.extname(f)]||'application/octet-stream'});fs.createReadStream(f).pipe(r);}).listen(0);
 const port=server.address().port;

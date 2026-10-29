@@ -1,0 +1,902 @@
+{
+  "meta": {
+    "date": "2026-10-29T01:58:19.617Z",
+    "runs": 3,
+    "throttle": 1,
+    "chromium": "156.0.8078.4",
+    "fixtures": {
+      "oneBytes": 421,
+      "t50Bytes": 23008,
+      "t200Bytes": 92314,
+      "longBytes": 6636
+    }
+  },
+  "samples": {
+    "markit.first_message_cold": [
+      {
+        "ms": 5.199999988079071,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 8.493,
+        "mainScriptMs": 0.48500000000000104,
+        "sinceNavigation": 38.30000001192093
+      },
+      {
+        "ms": 6.100000023841858,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 8.192000000000002,
+        "mainScriptMs": 0.4590000000000011,
+        "sinceNavigation": 32.5
+      },
+      {
+        "ms": 7.200000047683716,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 8.181000000000001,
+        "mainScriptMs": 0.4959999999999999,
+        "sinceNavigation": 33.90000009536743
+      }
+    ],
+    "markit.transfer_first_message": [
+      {
+        "files": 5,
+        "raw": 1181463,
+        "gzip": 497102,
+        "brotli": 413454,
+        "byFile": {
+          "bench/dist/markit/style.css": 1184,
+          "bench/dist/markit/app.js": 74853,
+          "bench/dist/markit/chunk-SQE76S5B.js": 358,
+          "bench/dist/markit/worker.js": 3329,
+          "bench/dist/markit/markit_wasm_bg.wasm": 417378
+        }
+      },
+      {
+        "files": 5,
+        "raw": 1181463,
+        "gzip": 497102,
+        "brotli": 413454,
+        "byFile": {
+          "bench/dist/markit/style.css": 1184,
+          "bench/dist/markit/app.js": 74853,
+          "bench/dist/markit/chunk-SQE76S5B.js": 358,
+          "bench/dist/markit/worker.js": 3329,
+          "bench/dist/markit/markit_wasm_bg.wasm": 417378
+        }
+      },
+      {
+        "files": 5,
+        "raw": 1181463,
+        "gzip": 497102,
+        "brotli": 413454,
+        "byFile": {
+          "bench/dist/markit/style.css": 1184,
+          "bench/dist/markit/app.js": 74853,
+          "bench/dist/markit/chunk-SQE76S5B.js": 358,
+          "bench/dist/markit/worker.js": 3329,
+          "bench/dist/markit/markit_wasm_bg.wasm": 417378
+        }
+      }
+    ],
+    "markit.first_message_warm": [
+      {
+        "ms": 2.299999952316284,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 3.1309999999999985,
+        "mainScriptMs": 0.2239999999999985
+      },
+      {
+        "ms": 2.099999964237213,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 3.1940000000000026,
+        "mainScriptMs": 0.2909999999999996
+      },
+      {
+        "ms": 2.099999964237213,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 3.0109999999999997,
+        "mainScriptMs": 0.2149999999999999
+      }
+    ],
+    "markit.first_message_cold_preload": [
+      {
+        "ms": 6.199999988079071,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 7.789999999999998,
+        "mainScriptMs": 0.4320000000000001,
+        "sinceNavigation": 32.60000002384186
+      },
+      {
+        "ms": 7.600000023841858,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 8.236999999999998,
+        "mainScriptMs": 0.5299999999999992,
+        "sinceNavigation": 34.60000002384186
+      },
+      {
+        "ms": 6.100000023841858,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 7.925999999999999,
+        "mainScriptMs": 0.654,
+        "sinceNavigation": 32.5
+      }
+    ],
+    "markit.transcript_50": [
+      {
+        "ms": 11.300000011920929,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 20.988999999999997,
+        "mainScriptMs": 0.6619999999999994,
+        "mainHeap": 2533738,
+        "domNodes": 2642,
+        "workerHeap": 812824,
+        "workerBacking": 155035,
+        "wasmMemory": 2097152,
+        "workers": 1
+      },
+      {
+        "ms": 22.399999976158142,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 22.2,
+        "mainScriptMs": 0.7670000000000003,
+        "mainHeap": 2533738,
+        "domNodes": 2642,
+        "workerHeap": 812824,
+        "workerBacking": 155035,
+        "wasmMemory": 2097152,
+        "workers": 1
+      },
+      {
+        "ms": 23.30000001192093,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 23.085,
+        "mainScriptMs": 0.7559999999999998,
+        "mainHeap": 2533694,
+        "domNodes": 2642,
+        "workerHeap": 812824,
+        "workerBacking": 155035,
+        "wasmMemory": 2097152,
+        "workers": 1
+      }
+    ],
+    "markit.transcript_200": [
+      {
+        "ms": 20.80000001192093,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 34.586999999999996,
+        "mainScriptMs": 1.269000000000001,
+        "mainHeap": 3476412,
+        "domNodes": 10555,
+        "workerHeap": 1221252,
+        "workerBacking": 471016,
+        "wasmMemory": 2883584,
+        "workers": 1
+      },
+      {
+        "ms": 20.19999998807907,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 34.217999999999996,
+        "mainScriptMs": 1.4459999999999993,
+        "mainHeap": 3597864,
+        "domNodes": 10555,
+        "workerHeap": 1221284,
+        "workerBacking": 471016,
+        "wasmMemory": 2883584,
+        "workers": 1
+      },
+      {
+        "ms": 24.900000035762787,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 33.951,
+        "mainScriptMs": 0.9779999999999998,
+        "mainHeap": 3478132,
+        "domNodes": 10555,
+        "workerHeap": 1221284,
+        "workerBacking": 471016,
+        "wasmMemory": 2883584,
+        "workers": 1
+      }
+    ],
+    "markit.transfer_transcript": [
+      {
+        "files": 5,
+        "raw": 1181463,
+        "gzip": 497102,
+        "brotli": 413454,
+        "byFile": {
+          "bench/dist/markit/style.css": 1184,
+          "bench/dist/markit/app.js": 74853,
+          "bench/dist/markit/chunk-SQE76S5B.js": 358,
+          "bench/dist/markit/worker.js": 3329,
+          "bench/dist/markit/markit_wasm_bg.wasm": 417378
+        }
+      },
+      {
+        "files": 5,
+        "raw": 1181463,
+        "gzip": 497102,
+        "brotli": 413454,
+        "byFile": {
+          "bench/dist/markit/style.css": 1184,
+          "bench/dist/markit/app.js": 74853,
+          "bench/dist/markit/chunk-SQE76S5B.js": 358,
+          "bench/dist/markit/worker.js": 3329,
+          "bench/dist/markit/markit_wasm_bg.wasm": 417378
+        }
+      },
+      {
+        "files": 5,
+        "raw": 1181463,
+        "gzip": 497102,
+        "brotli": 413454,
+        "byFile": {
+          "bench/dist/markit/style.css": 1184,
+          "bench/dist/markit/app.js": 74853,
+          "bench/dist/markit/chunk-SQE76S5B.js": 358,
+          "bench/dist/markit/worker.js": 3329,
+          "bench/dist/markit/markit_wasm_bg.wasm": 417378
+        }
+      }
+    ],
+    "markit.transcript_200_lazy": [
+      {
+        "ms": 23,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 33.355999999999995,
+        "mainScriptMs": 1.1229999999999989,
+        "mainHeap": 3038380,
+        "domNodes": 772,
+        "workerHeap": 689196,
+        "workerBacking": 36493,
+        "wasmMemory": 1703936,
+        "workers": 1
+      },
+      {
+        "ms": 33.69999998807907,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 35.859,
+        "mainScriptMs": 1.1230000000000007,
+        "mainHeap": 3052628,
+        "domNodes": 913,
+        "workerHeap": 708132,
+        "workerBacking": 39571,
+        "wasmMemory": 1703936,
+        "workers": 1
+      },
+      {
+        "ms": 21.600000023841858,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 30.45,
+        "mainScriptMs": 0.9409999999999992,
+        "mainHeap": 3038608,
+        "domNodes": 772,
+        "workerHeap": 692004,
+        "workerBacking": 36493,
+        "wasmMemory": 1703936,
+        "workers": 1
+      }
+    ],
+    "markit.stream_long": [
+      {
+        "ms": 4593.099999964237,
+        "fedMs": 4592.800000011921,
+        "tokens": 277,
+        "frameP50": 16.69999998807907,
+        "frameP95": 17.400000035762787,
+        "frameMax": 17.69999998807907,
+        "slowFrames": 0,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 136.728,
+        "mainScriptMs": 33.563,
+        "lagMs": 0.2999999523162842,
+        "workers": 1
+      },
+      {
+        "ms": 4592.5,
+        "fedMs": 4592.100000023842,
+        "tokens": 277,
+        "frameP50": 16.69999998807907,
+        "frameP95": 17.099999964237213,
+        "frameMax": 18.19999998807907,
+        "slowFrames": 0,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 128.09199999999998,
+        "mainScriptMs": 32.303,
+        "lagMs": 0.3999999761581421,
+        "workers": 1
+      },
+      {
+        "ms": 4593.900000035763,
+        "fedMs": 4593.5,
+        "tokens": 277,
+        "frameP50": 16.69999998807907,
+        "frameP95": 16.80000001192093,
+        "frameMax": 17,
+        "slowFrames": 0,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 127.01899999999999,
+        "mainScriptMs": 31.597,
+        "lagMs": 0.40000003576278687,
+        "workers": 1
+      }
+    ],
+    "ace.first_message_cold": [
+      {
+        "ms": 29.19999998807907,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 52.167,
+        "mainScriptMs": 4.134000000000002,
+        "sinceNavigation": 78.69999998807907
+      },
+      {
+        "ms": 16.69999998807907,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 34.61399999999999,
+        "mainScriptMs": 3.384999999999999,
+        "sinceNavigation": 77
+      },
+      {
+        "ms": 36.40000003576279,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 53.376,
+        "mainScriptMs": 26.335000000000004,
+        "sinceNavigation": 129.60000002384186
+      }
+    ],
+    "ace.transfer_first_message": [
+      {
+        "files": 13,
+        "raw": 1807279,
+        "gzip": 517488,
+        "brotli": 450866,
+        "byFile": {
+          "bench/dist/ace/ace.css": 3513,
+          "bench/dist/ace/ace.js": 66860,
+          "bench/dist/ace/chunk-VZ3LFGMU.js": 5809,
+          "bench/dist/ace/chunk-OOJM4CTU.js": 385,
+          "bench/dist/ace/markdown-XUL6UY7R.js": 146120,
+          "bench/dist/ace/chunk-SR7TIHBU.js": 1683,
+          "bench/dist/ace/fonts/KaTeX_Main-Regular.woff2": 26300,
+          "bench/dist/ace/fonts/KaTeX_Math-Italic.woff2": 16466,
+          "bench/dist/ace/fonts/KaTeX_Size2-Regular.woff2": 5231,
+          "bench/dist/ace/fonts/KaTeX_Size1-Regular.woff2": 5491,
+          "bench/dist/ace/fonts/KaTeX_AMS-Regular.woff2": 28104,
+          "bench/dist/ace/math-katex-FTAQWVBN.js": 76609,
+          "bench/dist/ace/markdown.worker.js": 134917
+        }
+      },
+      {
+        "files": 13,
+        "raw": 1807279,
+        "gzip": 517488,
+        "brotli": 450866,
+        "byFile": {
+          "bench/dist/ace/ace.css": 3513,
+          "bench/dist/ace/ace.js": 66860,
+          "bench/dist/ace/chunk-VZ3LFGMU.js": 5809,
+          "bench/dist/ace/chunk-OOJM4CTU.js": 385,
+          "bench/dist/ace/markdown-XUL6UY7R.js": 146120,
+          "bench/dist/ace/chunk-SR7TIHBU.js": 1683,
+          "bench/dist/ace/fonts/KaTeX_Main-Regular.woff2": 26300,
+          "bench/dist/ace/fonts/KaTeX_Math-Italic.woff2": 16466,
+          "bench/dist/ace/fonts/KaTeX_Size1-Regular.woff2": 5491,
+          "bench/dist/ace/fonts/KaTeX_Size2-Regular.woff2": 5231,
+          "bench/dist/ace/fonts/KaTeX_AMS-Regular.woff2": 28104,
+          "bench/dist/ace/math-katex-FTAQWVBN.js": 76609,
+          "bench/dist/ace/markdown.worker.js": 134917
+        }
+      },
+      {
+        "files": 13,
+        "raw": 1807279,
+        "gzip": 517488,
+        "brotli": 450866,
+        "byFile": {
+          "bench/dist/ace/ace.css": 3513,
+          "bench/dist/ace/ace.js": 66860,
+          "bench/dist/ace/chunk-VZ3LFGMU.js": 5809,
+          "bench/dist/ace/chunk-OOJM4CTU.js": 385,
+          "bench/dist/ace/markdown-XUL6UY7R.js": 146120,
+          "bench/dist/ace/chunk-SR7TIHBU.js": 1683,
+          "bench/dist/ace/math-katex-FTAQWVBN.js": 76609,
+          "bench/dist/ace/markdown.worker.js": 134917,
+          "bench/dist/ace/fonts/KaTeX_Main-Regular.woff2": 26300,
+          "bench/dist/ace/fonts/KaTeX_Math-Italic.woff2": 16466,
+          "bench/dist/ace/fonts/KaTeX_Size1-Regular.woff2": 5491,
+          "bench/dist/ace/fonts/KaTeX_Size2-Regular.woff2": 5231,
+          "bench/dist/ace/fonts/KaTeX_AMS-Regular.woff2": 28104
+        }
+      }
+    ],
+    "ace.first_message_warm": [
+      {
+        "ms": 7.400000035762787,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 6.006999999999999,
+        "mainScriptMs": 1.781999999999999
+      },
+      {
+        "ms": 7.699999988079071,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 6.264999999999993,
+        "mainScriptMs": 1.7619999999999996
+      },
+      {
+        "ms": 8.600000023841858,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 5.324999999999997,
+        "mainScriptMs": 1.7339999999999995
+      }
+    ],
+    "ace.transcript_50": [
+      {
+        "ms": 41.69999998807907,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 62.766000000000005,
+        "mainScriptMs": 3.4269999999999996,
+        "mainHeap": 9179673,
+        "domNodes": 3590,
+        "workerHeap": 1918856,
+        "workerBacking": 583651,
+        "wasmMemory": 0,
+        "workers": 1
+      },
+      {
+        "ms": 42.30000001192093,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 69.22999999999999,
+        "mainScriptMs": 3.797999999999999,
+        "mainHeap": 9179781,
+        "domNodes": 3590,
+        "workerHeap": 1916884,
+        "workerBacking": 583651,
+        "wasmMemory": 0,
+        "workers": 1
+      },
+      {
+        "ms": 40.19999998807907,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 78.359,
+        "mainScriptMs": 3.757,
+        "mainHeap": 9181225,
+        "domNodes": 3590,
+        "workerHeap": 1926748,
+        "workerBacking": 583651,
+        "wasmMemory": 0,
+        "workers": 1
+      }
+    ],
+    "ace.transcript_200": [
+      {
+        "ms": 98.10000002384186,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 112.374,
+        "mainScriptMs": 13.083,
+        "mainHeap": 13699044,
+        "domNodes": 14335,
+        "workerHeap": 3743280,
+        "workerBacking": 583651,
+        "wasmMemory": 0,
+        "workers": 1
+      },
+      {
+        "ms": 107.60000002384186,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 115.18800000000002,
+        "mainScriptMs": 13.868000000000002,
+        "mainHeap": 13697700,
+        "domNodes": 14335,
+        "workerHeap": 3784184,
+        "workerBacking": 583651,
+        "wasmMemory": 0,
+        "workers": 1
+      },
+      {
+        "ms": 135.79999995231628,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 161.13,
+        "mainScriptMs": 17.346,
+        "mainHeap": 13703816,
+        "domNodes": 14335,
+        "workerHeap": 3769580,
+        "workerBacking": 583651,
+        "wasmMemory": 0,
+        "workers": 1
+      }
+    ],
+    "ace.transfer_transcript": [
+      {
+        "files": 13,
+        "raw": 1807279,
+        "gzip": 517488,
+        "brotli": 450866,
+        "byFile": {
+          "bench/dist/ace/ace.css": 3513,
+          "bench/dist/ace/ace.js": 66860,
+          "bench/dist/ace/chunk-VZ3LFGMU.js": 5809,
+          "bench/dist/ace/chunk-OOJM4CTU.js": 385,
+          "bench/dist/ace/markdown-XUL6UY7R.js": 146120,
+          "bench/dist/ace/chunk-SR7TIHBU.js": 1683,
+          "bench/dist/ace/fonts/KaTeX_Main-Regular.woff2": 26300,
+          "bench/dist/ace/fonts/KaTeX_Math-Italic.woff2": 16466,
+          "bench/dist/ace/math-katex-FTAQWVBN.js": 76609,
+          "bench/dist/ace/fonts/KaTeX_Size1-Regular.woff2": 5491,
+          "bench/dist/ace/fonts/KaTeX_Size2-Regular.woff2": 5231,
+          "bench/dist/ace/fonts/KaTeX_AMS-Regular.woff2": 28104,
+          "bench/dist/ace/markdown.worker.js": 134917
+        }
+      },
+      {
+        "files": 13,
+        "raw": 1807279,
+        "gzip": 517488,
+        "brotli": 450866,
+        "byFile": {
+          "bench/dist/ace/ace.css": 3513,
+          "bench/dist/ace/ace.js": 66860,
+          "bench/dist/ace/chunk-VZ3LFGMU.js": 5809,
+          "bench/dist/ace/chunk-OOJM4CTU.js": 385,
+          "bench/dist/ace/markdown-XUL6UY7R.js": 146120,
+          "bench/dist/ace/chunk-SR7TIHBU.js": 1683,
+          "bench/dist/ace/fonts/KaTeX_Main-Regular.woff2": 26300,
+          "bench/dist/ace/fonts/KaTeX_Math-Italic.woff2": 16466,
+          "bench/dist/ace/fonts/KaTeX_Size1-Regular.woff2": 5491,
+          "bench/dist/ace/fonts/KaTeX_Size2-Regular.woff2": 5231,
+          "bench/dist/ace/fonts/KaTeX_AMS-Regular.woff2": 28104,
+          "bench/dist/ace/math-katex-FTAQWVBN.js": 76609,
+          "bench/dist/ace/markdown.worker.js": 134917
+        }
+      },
+      {
+        "files": 13,
+        "raw": 1807279,
+        "gzip": 517488,
+        "brotli": 450866,
+        "byFile": {
+          "bench/dist/ace/ace.css": 3513,
+          "bench/dist/ace/ace.js": 66860,
+          "bench/dist/ace/chunk-VZ3LFGMU.js": 5809,
+          "bench/dist/ace/chunk-OOJM4CTU.js": 385,
+          "bench/dist/ace/markdown-XUL6UY7R.js": 146120,
+          "bench/dist/ace/chunk-SR7TIHBU.js": 1683,
+          "bench/dist/ace/fonts/KaTeX_Main-Regular.woff2": 26300,
+          "bench/dist/ace/fonts/KaTeX_Math-Italic.woff2": 16466,
+          "bench/dist/ace/fonts/KaTeX_Size1-Regular.woff2": 5491,
+          "bench/dist/ace/fonts/KaTeX_Size2-Regular.woff2": 5231,
+          "bench/dist/ace/fonts/KaTeX_AMS-Regular.woff2": 28104,
+          "bench/dist/ace/math-katex-FTAQWVBN.js": 76609,
+          "bench/dist/ace/markdown.worker.js": 134917
+        }
+      }
+    ],
+    "ace.stream_long": [
+      {
+        "ms": 4586,
+        "fedMs": 4584.5,
+        "tokens": 277,
+        "frameP50": 16.69999998807907,
+        "frameP95": 17.5,
+        "frameMax": 17.69999998807907,
+        "slowFrames": 0,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 148.88899999999998,
+        "mainScriptMs": 59.309,
+        "lagMs": 1.5,
+        "workers": 1
+      },
+      {
+        "ms": 4601.300000011921,
+        "fedMs": 4599.5,
+        "tokens": 277,
+        "frameP50": 16.69999998807907,
+        "frameP95": 17.19999998807907,
+        "frameMax": 17.400000035762787,
+        "slowFrames": 0,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 144.175,
+        "mainScriptMs": 57.343,
+        "lagMs": 1.800000011920929,
+        "workers": 1
+      },
+      {
+        "ms": 4601.900000035763,
+        "fedMs": 4600,
+        "tokens": 277,
+        "frameP50": 16.69999998807907,
+        "frameP95": 17.5,
+        "frameMax": 17.69999998807907,
+        "slowFrames": 0,
+        "longTasks": 0,
+        "tbt": 0,
+        "longestTask": 0,
+        "mainTaskMs": 148.062,
+        "mainScriptMs": 58.74099999999999,
+        "lagMs": 1.9000000357627869,
+        "workers": 1
+      }
+    ]
+  },
+  "medians": {
+    "markit.first_message_cold": {
+      "ms": 6.100000023841858,
+      "longTasks": 0,
+      "tbt": 0,
+      "longestTask": 0,
+      "mainTaskMs": 8.192000000000002,
+      "mainScriptMs": 0.48500000000000104,
+      "sinceNavigation": 33.90000009536743
+    },
+    "markit.transfer_first_message": {
+      "files": 5,
+      "raw": 1181463,
+      "gzip": 497102,
+      "brotli": 413454,
+      "byFile": {
+        "bench/dist/markit/style.css": 1184,
+        "bench/dist/markit/app.js": 74853,
+        "bench/dist/markit/chunk-SQE76S5B.js": 358,
+        "bench/dist/markit/worker.js": 3329,
+        "bench/dist/markit/markit_wasm_bg.wasm": 417378
+      }
+    },
+    "markit.first_message_warm": {
+      "ms": 2.099999964237213,
+      "longTasks": 0,
+      "tbt": 0,
+      "longestTask": 0,
+      "mainTaskMs": 3.1309999999999985,
+      "mainScriptMs": 0.2239999999999985
+    },
+    "markit.first_message_cold_preload": {
+      "ms": 6.199999988079071,
+      "longTasks": 0,
+      "tbt": 0,
+      "longestTask": 0,
+      "mainTaskMs": 7.925999999999999,
+      "mainScriptMs": 0.5299999999999992,
+      "sinceNavigation": 32.60000002384186
+    },
+    "markit.transcript_50": {
+      "ms": 22.399999976158142,
+      "longTasks": 0,
+      "tbt": 0,
+      "longestTask": 0,
+      "mainTaskMs": 22.2,
+      "mainScriptMs": 0.7559999999999998,
+      "mainHeap": 2533738,
+      "domNodes": 2642,
+      "workerHeap": 812824,
+      "workerBacking": 155035,
+      "wasmMemory": 2097152,
+      "workers": 1
+    },
+    "markit.transcript_200": {
+      "ms": 20.80000001192093,
+      "longTasks": 0,
+      "tbt": 0,
+      "longestTask": 0,
+      "mainTaskMs": 34.217999999999996,
+      "mainScriptMs": 1.269000000000001,
+      "mainHeap": 3478132,
+      "domNodes": 10555,
+      "workerHeap": 1221284,
+      "workerBacking": 471016,
+      "wasmMemory": 2883584,
+      "workers": 1
+    },
+    "markit.transfer_transcript": {
+      "files": 5,
+      "raw": 1181463,
+      "gzip": 497102,
+      "brotli": 413454,
+      "byFile": {
+        "bench/dist/markit/style.css": 1184,
+        "bench/dist/markit/app.js": 74853,
+        "bench/dist/markit/chunk-SQE76S5B.js": 358,
+        "bench/dist/markit/worker.js": 3329,
+        "bench/dist/markit/markit_wasm_bg.wasm": 417378
+      }
+    },
+    "markit.transcript_200_lazy": {
+      "ms": 23,
+      "longTasks": 0,
+      "tbt": 0,
+      "longestTask": 0,
+      "mainTaskMs": 33.355999999999995,
+      "mainScriptMs": 1.1229999999999989,
+      "mainHeap": 3038608,
+      "domNodes": 772,
+      "workerHeap": 692004,
+      "workerBacking": 36493,
+      "wasmMemory": 1703936,
+      "workers": 1
+    },
+    "markit.stream_long": {
+      "ms": 4593.099999964237,
+      "fedMs": 4592.800000011921,
+      "tokens": 277,
+      "frameP50": 16.69999998807907,
+      "frameP95": 17.099999964237213,
+      "frameMax": 17.69999998807907,
+      "slowFrames": 0,
+      "longTasks": 0,
+      "tbt": 0,
+      "longestTask": 0,
+      "mainTaskMs": 128.09199999999998,
+      "mainScriptMs": 32.303,
+      "lagMs": 0.3999999761581421,
+      "workers": 1
+    },
+    "ace.first_message_cold": {
+      "ms": 29.19999998807907,
+      "longTasks": 0,
+      "tbt": 0,
+      "longestTask": 0,
+      "mainTaskMs": 52.167,
+      "mainScriptMs": 4.134000000000002,
+      "sinceNavigation": 78.69999998807907
+    },
+    "ace.transfer_first_message": {
+      "files": 13,
+      "raw": 1807279,
+      "gzip": 517488,
+      "brotli": 450866,
+      "byFile": {
+        "bench/dist/ace/ace.css": 3513,
+        "bench/dist/ace/ace.js": 66860,
+        "bench/dist/ace/chunk-VZ3LFGMU.js": 5809,
+        "bench/dist/ace/chunk-OOJM4CTU.js": 385,
+        "bench/dist/ace/markdown-XUL6UY7R.js": 146120,
+        "bench/dist/ace/chunk-SR7TIHBU.js": 1683,
+        "bench/dist/ace/fonts/KaTeX_Main-Regular.woff2": 26300,
+        "bench/dist/ace/fonts/KaTeX_Math-Italic.woff2": 16466,
+        "bench/dist/ace/fonts/KaTeX_Size2-Regular.woff2": 5231,
+        "bench/dist/ace/fonts/KaTeX_Size1-Regular.woff2": 5491,
+        "bench/dist/ace/fonts/KaTeX_AMS-Regular.woff2": 28104,
+        "bench/dist/ace/math-katex-FTAQWVBN.js": 76609,
+        "bench/dist/ace/markdown.worker.js": 134917
+      }
+    },
+    "ace.first_message_warm": {
+      "ms": 7.699999988079071,
+      "longTasks": 0,
+      "tbt": 0,
+      "longestTask": 0,
+      "mainTaskMs": 6.006999999999999,
+      "mainScriptMs": 1.7619999999999996
+    },
+    "ace.transcript_50": {
+      "ms": 41.69999998807907,
+      "longTasks": 0,
+      "tbt": 0,
+      "longestTask": 0,
+      "mainTaskMs": 69.22999999999999,
+      "mainScriptMs": 3.757,
+      "mainHeap": 9179781,
+      "domNodes": 3590,
+      "workerHeap": 1918856,
+      "workerBacking": 583651,
+      "wasmMemory": 0,
+      "workers": 1
+    },
+    "ace.transcript_200": {
+      "ms": 107.60000002384186,
+      "longTasks": 0,
+      "tbt": 0,
+      "longestTask": 0,
+      "mainTaskMs": 115.18800000000002,
+      "mainScriptMs": 13.868000000000002,
+      "mainHeap": 13699044,
+      "domNodes": 14335,
+      "workerHeap": 3769580,
+      "workerBacking": 583651,
+      "wasmMemory": 0,
+      "workers": 1
+    },
+    "ace.transfer_transcript": {
+      "files": 13,
+      "raw": 1807279,
+      "gzip": 517488,
+      "brotli": 450866,
+      "byFile": {
+        "bench/dist/ace/ace.css": 3513,
+        "bench/dist/ace/ace.js": 66860,
+        "bench/dist/ace/chunk-VZ3LFGMU.js": 5809,
+        "bench/dist/ace/chunk-OOJM4CTU.js": 385,
+        "bench/dist/ace/markdown-XUL6UY7R.js": 146120,
+        "bench/dist/ace/chunk-SR7TIHBU.js": 1683,
+        "bench/dist/ace/fonts/KaTeX_Main-Regular.woff2": 26300,
+        "bench/dist/ace/fonts/KaTeX_Math-Italic.woff2": 16466,
+        "bench/dist/ace/math-katex-FTAQWVBN.js": 76609,
+        "bench/dist/ace/fonts/KaTeX_Size1-Regular.woff2": 5491,
+        "bench/dist/ace/fonts/KaTeX_Size2-Regular.woff2": 5231,
+        "bench/dist/ace/fonts/KaTeX_AMS-Regular.woff2": 28104,
+        "bench/dist/ace/markdown.worker.js": 134917
+      }
+    },
+    "ace.stream_long": {
+      "ms": 4601.300000011921,
+      "fedMs": 4599.5,
+      "tokens": 277,
+      "frameP50": 16.69999998807907,
+      "frameP95": 17.5,
+      "frameMax": 17.69999998807907,
+      "slowFrames": 0,
+      "longTasks": 0,
+      "tbt": 0,
+      "longestTask": 0,
+      "mainTaskMs": 148.062,
+      "mainScriptMs": 58.74099999999999,
+      "lagMs": 1.800000011920929,
+      "workers": 1
+    }
+  }
+}
