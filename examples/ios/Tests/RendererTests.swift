@@ -3,6 +3,33 @@ import UIKit
 @testable import Markit
 
 final class RendererTests: XCTestCase {
+    @MainActor func testCodeCellsReuseSubviewsWithoutStaleText() throws {
+        let lines = (0..<1000).map { "let value_\($0) = \"😀\";" }
+        let document = try Markit.parse("```rust\n" + lines.joined(separator: "\n") + "\n```\n")
+        let block = try XCTUnwrap(document.blocks.first { $0.kind == "code" })
+        let pane = MarkitRowsPane(document: document, range: block.range, kind: "code", availableWidth: 390)
+        pane.frame = CGRect(x: 0, y: 0, width: 390, height: 360); pane.layoutIfNeeded()
+        func codeTable(_ view: UIView) -> UITableView? {
+            if let table = view as? UITableView { return table }
+            return view.subviews.lazy.compactMap { codeTable($0) }.first
+        }
+        let table = try XCTUnwrap(codeTable(pane))
+        var contents: [ObjectIdentifier: UIView] = [:], reused = 0
+        for offset in [CGFloat(0), max(0, table.contentSize.height - table.bounds.height), 0, max(0, table.contentSize.height - table.bounds.height), 0] {
+            table.setContentOffset(CGPoint(x: 0, y: offset), animated: false); table.layoutIfNeeded()
+            XCTAssertLessThan(table.visibleCells.count, 50)
+            for cell in table.visibleCells {
+                let row = try XCTUnwrap(table.indexPath(for: cell)).row
+                let stack = try XCTUnwrap(cell.contentView.subviews.first as? UIStackView)
+                if let previous = contents[ObjectIdentifier(cell)] { XCTAssertTrue(previous === stack); reused += 1 }
+                contents[ObjectIdentifier(cell)] = stack
+                XCTAssertEqual((stack.arrangedSubviews[0] as? UILabel)?.text, String(row + 1))
+                XCTAssertEqual((stack.arrangedSubviews[1] as? UILabel)?.text, lines[row])
+            }
+        }
+        XCTAssertGreaterThan(reused, 0)
+    }
+
     @MainActor func testIndexedCodeStylesMatchFullSpanScan() throws {
         let document = try Markit.parse("```rust\nlet café = \"😀\";\n/* multi\nline */\n\n```\n")
         let source = document.text as NSString
@@ -30,5 +57,9 @@ final class RendererTests: XCTestCase {
         view.setDocument(next)
         view.layoutIfNeeded()
         XCTAssertEqual(table.numberOfRows(inSection: 0), next.blocks.count)
+        view.setDocument(try Markit.parse("")); view.layoutIfNeeded()
+        XCTAssertEqual(table.numberOfRows(inSection: 0),0)
+        view.setDocument(first); view.layoutIfNeeded()
+        XCTAssertEqual(table.numberOfRows(inSection: 0),first.blocks.count)
     }
 }

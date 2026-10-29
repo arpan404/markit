@@ -123,7 +123,7 @@ class MarkitView @JvmOverloads constructor(context: Context, attrs: AttributeSet
             }
         }
     }
-    private class Holder(val root: LinearLayout) : ViewHolder(root)
+    private class Holder(val root: LinearLayout, val number: TextView? = null, val code: TextView? = null) : ViewHolder(root)
     private fun rowsPane(row: Row): LinearLayout {
         val pane = LinearLayout(context); pane.orientation = LinearLayout.VERTICAL
         val table = row.kind == "table"
@@ -135,12 +135,17 @@ class MarkitView @JvmOverloads constructor(context: Context, attrs: AttributeSet
         val copy = Button(context); copy.text = "Copy"; copy.contentDescription = if (table) "Copy table" else "Copy code"
         copy.setOnClickListener { (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Code",row.document.source(row.start,row.end))); copy.text = "Copied" }
         header.addView(copy); pane.addView(header)
-        val cells = row.document.spans.filter { it.kind == "table_cell" && it.start >= row.start && it.end <= row.end }.groupBy { it.number("row") }.toSortedMap().values.map { it.sortedBy { cell -> cell.number("column") } }
+        val cells = if (table) row.document.spans.filter { it.kind == "table_cell" && it.start >= row.start && it.end <= row.end }.groupBy { it.number("row") }.toSortedMap().values.map { it.sortedBy { cell -> cell.number("column") } } else emptyList()
         val lines = mutableListOf<Pair<Int,Int>>()
         if (!table) {
             var at = row.start
             while (at < row.end) { val newline = row.document.text.indexOf('\n',at).let { if (it < 0 || it >= row.end) row.end else it }; lines.add(Pair(at,newline)); at = newline + 1 }
         }
+        val lineSpans = if (!table && lines.size > 50 && row.document.spans.size > lines.size) spansByLine(row.document.spans, lines) else null
+        val cellRanges = if (table) cells.flatten().map { Pair(it.start,it.end) } else emptyList()
+        val cellSpans = if (cellRanges.size > 50 && row.document.spans.size > cellRanges.size) spansByLine(row.document.spans,cellRanges) else null
+        val cellOffsets = IntArray(cells.size + 1)
+        for (i in cells.indices) cellOffsets[i+1] = cellOffsets[i] + cells[i].size
         val count = if (table) cells.size else lines.size
         val rowHeight = context.dp(if (table) 48 else (22 * resources.configuration.fontScale).toInt())
         val width = maxOf(this@MarkitView.width - context.dp(24), if (table) (cells.firstOrNull()?.size ?: 1) * context.dp(160) else context.dp(minOf(12000,(lines.maxOfOrNull { it.second - it.first } ?: 0)*8+64)))
@@ -148,22 +153,35 @@ class MarkitView @JvmOverloads constructor(context: Context, attrs: AttributeSet
         inner.contentDescription = if (table) "Markdown table" else "Source code"
         inner.adapter = object : Adapter<Holder>() {
             override fun getItemCount() = count
-            override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = Holder(LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; layoutParams = LayoutParams(width,rowHeight) })
+            override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
+                val root = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; layoutParams = LayoutParams(width,rowHeight) }
+                if (table) return Holder(root)
+                val number = TextView(context); number.textSize = 11f; number.gravity = Gravity.END
+                val text = TextView(context); text.setSingleLine(true); text.setPadding(context.dp(12),0,0,0)
+                root.addView(number,LinearLayout.LayoutParams(context.dp(40),rowHeight))
+                root.addView(text,LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,rowHeight))
+                return Holder(root,number,text)
+            }
             override fun onBindViewHolder(holder: Holder, position: Int) {
-                holder.root.removeAllViews()
                 if (table) {
-                    for (cell in cells[position]) {
-                        val text = TextView(context); text.setTextColor(context.ink()); text.textSize = 13f; text.maxLines = 2; text.setPadding(context.dp(8),0,context.dp(8),0)
-                        text.text = styled(row.document,cell.start,cell.end,context,onLink,onReference)
-                        text.gravity = when(cell.string("alignment")) { "right" -> Gravity.END; "center" -> Gravity.CENTER; else -> Gravity.START }
+                    val rowCells = cells[position]
+                    while (holder.root.childCount > rowCells.size) holder.root.removeViewAt(holder.root.childCount - 1)
+                    while (holder.root.childCount < rowCells.size) {
+                        val text = TextView(context); text.textSize = 13f; text.maxLines = 2; text.setPadding(context.dp(8),0,context.dp(8),0)
                         holder.root.addView(text,LinearLayout.LayoutParams(context.dp(160),rowHeight))
                     }
+                    for ((column,cell) in rowCells.withIndex()) {
+                        val text = holder.root.getChildAt(column) as TextView
+                        text.setTextColor(context.ink())
+                        text.text = styled(row.document,cell.start,cell.end,context,onLink,onReference,cellSpans?.get(cellOffsets[position]+column) ?: row.document.spans)
+                        text.gravity = when(cell.string("alignment")) { "right" -> Gravity.END; "center" -> Gravity.CENTER; else -> Gravity.START }
+                    }
                 } else {
-                    val number = TextView(context); number.text = (position+1).toString(); number.textSize = 11f; number.gravity = Gravity.END; number.setTextColor(context.ink())
-                    holder.root.addView(number,LinearLayout.LayoutParams(context.dp(40),rowHeight))
-                    val text = TextView(context); text.setTextColor(context.ink()); text.setSingleLine(true); text.setPadding(context.dp(12),0,0,0)
-                    text.text = styled(row.document,lines[position].first,lines[position].second,context,onLink,onReference)
-                    holder.root.addView(text,LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,rowHeight))
+                    holder.number!!.apply { text = (position+1).toString(); setTextColor(context.ink()) }
+                    holder.code!!.apply {
+                        setTextColor(context.ink())
+                        text = styled(row.document,lines[position].first,lines[position].second,context,onLink,onReference,lineSpans?.get(position) ?: row.document.spans)
+                    }
                 }
             }
         }

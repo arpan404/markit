@@ -223,3 +223,55 @@ The harness also records synchronous scroll-to-end work for the outer document l
 The benchmark exposed an iOS crash when setting a document before the first layout. `UITableView` had observed the new data-source count before receiving insertion operations. Mutating rows inside the update transaction fixes it; a release simulator regression test failed before the fix and passes after. Another test compares indexed and full-scan attributed output for both appearances, Unicode, multiline comments, and empty lines.
 
 Raw results: [iOS before](../benchmarks/results/ios-simulator-before.json), [iOS after](../benchmarks/results/ios-simulator-after.json), [Android](../benchmarks/results/android-emulator.json). Build and run instructions are in [the benchmark README](../benchmarks/README.md#native-app-benchmarks).
+
+## Native code-cell reuse follow-up
+
+Code panes now retain their code labels and line-number views when a row is rebound. UIKit also retains the row's stack and constraints. Android buckets spans by line for long highlighted code blocks, preserving their original application order; small/unhighlighted blocks keep the direct scan. Android also skips table-cell grouping for code panes. Table cells, text copying, callbacks, appearance colors and row virtualization retain their existing behavior.
+
+The native harness now measures eight bottom/top round trips **within** each code pane. This is a new workload and must not be compared with the earlier outer-list `scrollToEndMs` field. Values below are medians of nine warm observations after retaining the first separately, release demo builds run sequentially on the same iOS 27 Simulator and Android 16 emulator as above. Before is `57ec437` with only the benchmark extension.
+
+| Platform | Fixture | Before | After | Reduction |
+| --- | --- | ---: | ---: | ---: |
+| ios | code1000 | 113.23 ms | 38.80 ms | 66% |
+| ios | code5000 | 106.41 ms | 34.46 ms | 68% |
+| android | code1000 | 22.86 ms | 14.81 ms | 35% |
+| android | code5000 | 10.91 ms | 9.13 ms | 16% |
+
+These are synchronous layout/binding costs for eight round trips, not per-frame latencies or FPS. They exclude drawing, GPU presentation and physical-device behavior. iOS and Android have different layout pipelines and units, so compare each platform with its own baseline. No Ace native UI comparison was run. No memory or allocation-count measurement was collected. Reuse retains a bounded set of row child views; Android's span index adds lists of span references for long highlighted panes.
+
+Initial layout remains similar: highlighted iOS 11.58→11.14 ms, Android 2.99→2.73 ms; plain-file iOS 11.07→10.91 ms, Android 1.40→1.46 ms. Small shifts are subject to simulator noise and are not separate performance claims. Rust/bridge preparation is unchanged.
+
+Validation passes all three release UIKit tests and all five Android instrumentation tests. New tests verify that rebound rows retain their child views while showing the correct line number, Unicode source and syntax colors; UIKit scrolls between the ends and checks bounded visible-cell counts. Span buckets are checked against a full scan, including overlaps and multiline/empty code lines.
+
+Raw samples: [iOS before](../benchmarks/results/ios-reuse-before.json), [iOS after](../benchmarks/results/ios-reuse-after.json), [Android before](../benchmarks/results/android-reuse-before.json), [Android after](../benchmarks/results/android-reuse-after.json).
+
+## Real Ace SQLite transcript workload
+
+The workload was exported read-only from the local Ace events SQLite database, scoped to the latest 200 Ace-project threads. A single read transaction selected completed assistant text, reconstructed stored UTF-16 chunks where applicable, and deduplicated identical messages. The frozen population contains 5,549 unique messages, with a median size of 106 UTF-8 bytes and a maximum of 34,505 bytes. These are quantiles of unique messages, not a frequency-weighted estimate of all UI traffic.
+
+Fifteen anonymous cases retain byte-size quantiles, complete messages with the most fences/table rows/list items, and exact extracted fences and the largest contiguous table. Each full message remains one input, matching Ace's per-message rendering scope. The table-heavy full message contains 152 table rows across its tables, with at most five columns. The largest extracted code fence has only 12 lines: the earlier 1,000/5,000-line synthetic cases are stress tests, not a description of this observed usage.
+
+Raw text is kept outside the repository and copied only into local benchmark app data at runtime. The committed [corpus summary](../benchmarks/results/ace-real-corpus-summary.json) contains sizes, counts and hashes, not text, thread IDs or titles. Both variants use the identical corpus SHA-256. Result files retain native source hashes and the pre-change `57ec437` baseline. The final iOS after run was repeated after rejecting table-row reuse; Android before/after runs share the same frozen corpus.
+
+| Platform | Anonymous case | Work measured | Before | After |
+| --- | --- | --- | ---: | ---: |
+| ios | real_p050 | Initial viewport | 2.601 ms | 2.437 ms |
+| ios | real_p099 | Initial viewport | 30.242 ms | 20.024 ms |
+| ios | real_most_list_items | Initial viewport | 39.448 ms | 14.443 ms |
+| ios | real_most_table_rows | Initial viewport | 23.784 ms | 23.147 ms |
+| ios | table_real_largest | 8 table scroll round trips | 111.340 ms | 111.668 ms |
+| android | real_p050 | Initial viewport | 0.105 ms | 0.099 ms |
+| android | real_p099 | Initial viewport | 0.909 ms | 0.684 ms |
+| android | real_most_list_items | Initial viewport | 1.793 ms | 0.977 ms |
+| android | real_most_table_rows | Initial viewport | 3.202 ms | 2.530 ms |
+| android | table_real_largest | 8 table scroll round trips | 14.374 ms | 6.488 ms |
+
+The strongest real-message wins are iOS list-heavy first layout, about 63% lower, and Android's extracted-table scroll work, about 55% lower. The Android table-heavy full message's initial layout is about 21% lower. Typical one-line messages are essentially unchanged; small absolute differences should be treated as noise. The iOS 99th-percentile-sized message's initial viewport improves, while its outer scroll-to-end work increases from about 15 to 18 ms. Initial-load virtualization leaves more layout work for scrolling; this is a tradeoff, not an across-the-board latency improvement.
+
+Changes retained for this workload: iOS uses a data reload for the first document instead of inserting every row through a batch transaction, and retains code-row labels/constraints. Android retains code/table text views and limits style span scans to relevant code lines or table cells for large blocks. The Android indexes add reference-list storage; peak memory was not measured. An iOS table-row reuse experiment reduced table scrolling but increased initial table layout, so it was removed.
+
+Ace source was inspected read-only at `f76c34dc2f47471c09a35b94a5c2489399810d51`. Its iOS renderer uses per-message SwiftUI blocks and caps initially displayed code before expansion. The Android transcript uses native text rows; it is not an equivalent Markdown rendering baseline. These runs benchmark Markit's UIKit/RecyclerView bindings with Ace content, not the complete Ace clients or a renderer speedup against Ace. They exclude network, streaming cadence, GPU presentation and physical-device FPS. Samples remain warm-process medians of nine observations after retaining the first separately, on the same simulator/emulator described above.
+
+Raw timings: [iOS before](../benchmarks/results/ios-real-before.json), [iOS after](../benchmarks/results/ios-real-after.json), [Android before](../benchmarks/results/android-real-before.json), [Android after](../benchmarks/results/android-real-after.json). Reproduction uses the read-only exporter and `run-mobile.py --fixtures`, documented in the benchmark README.
+
+Final validation for the real-corpus pass: all three release UIKit tests and all six Android instrumentation tests pass. The table test checks reused labels, text/alignment/style reset and the latest link callback after rebinding. The UIKit initial-load test also clears and repopulates a document before subsequent layouts. The exporter and private-corpus runner were exercised against the real read-only store and both installed release demos.

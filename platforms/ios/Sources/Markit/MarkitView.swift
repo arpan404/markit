@@ -66,6 +66,11 @@ import UIKit
             }
             return pieces
         } }
+        if oldCount == 0 {
+            rows.append(contentsOf: appended)
+            table.reloadData()
+            return
+        }
         table.performBatchUpdates {
             // UIKit must observe the old count before the transaction begins.
             // In particular, the first update may precede the first layout.

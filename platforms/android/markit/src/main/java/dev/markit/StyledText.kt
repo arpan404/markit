@@ -22,10 +22,10 @@ import android.widget.TextView
 internal class MathSpan(drawable: android.graphics.drawable.Drawable, val raw: String) : ImageSpan(drawable, ALIGN_BASELINE)
 internal fun Context.dp(value: Int): Int = (resources.displayMetrics.density * value).toInt()
 internal fun Context.ink(): Int = if (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES) Color.rgb(230,237,243) else Color.rgb(36,41,47)
-internal fun styled(document: MarkitDocument, start: Int, end: Int, context: Context, onLink: (String) -> Unit, onReference: (MarkitReference) -> Unit): SpannableString {
+internal fun styled(document: MarkitDocument, start: Int, end: Int, context: Context, onLink: (String) -> Unit, onReference: (MarkitReference) -> Unit, candidates: List<MarkitSpan> = document.spans): SpannableString {
     val output = SpannableString(document.text.substring(start, end))
     val dark = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
-    for (span in document.spans) {
+    for (span in candidates) {
         val from = maxOf(start, span.start) - start; val to = minOf(end, span.end) - start
         if (from >= to) continue
         fun apply(value: Any) { output.setSpan(value, from, to, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE) }
@@ -79,4 +79,21 @@ internal fun enableSourceCopy(view: TextView) {
             mode.finish(); return true
         }
     }
+}
+
+/** Intersecting spans in their original application order for each code line. */
+internal fun spansByLine(spans: List<MarkitSpan>, lines: List<Pair<Int, Int>>): List<List<MarkitSpan>> {
+    val result = List(lines.size) { ArrayList<MarkitSpan>() }
+    for (span in spans) {
+        var low = 0; var high = lines.size
+        while (low < high) {
+            val mid = (low + high) ushr 1
+            if (lines[mid].second <= span.start) low = mid + 1 else high = mid
+        }
+        while (low < lines.size && lines[low].first < span.end) {
+            if (maxOf(lines[low].first, span.start) < minOf(lines[low].second, span.end)) result[low].add(span)
+            low++
+        }
+    }
+    return result
 }

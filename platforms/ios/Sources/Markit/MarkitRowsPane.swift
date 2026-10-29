@@ -71,28 +71,49 @@ final class MarkitRowsPane: UIView, UITableViewDataSource {
     required init?(coder: NSCoder) { fatalError("Use init(document:range:kind:availableWidth:)") }
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { isTable ? cells.count : lines.count }
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        if !isTable {
+            let cell = tableView.dequeueReusableCell(withIdentifier: "code-line") as? CodeLineCell ?? CodeLineCell()
+            cell.number.text = String(indexPath.row + 1)
+            cell.code.attributedText = attributed(document, range: lines[indexPath.row], traits: traitCollection, candidates: lineSpans?[indexPath.row])
+            return cell
+        }
         let cell = tableView.dequeueReusableCell(withIdentifier: "line") ?? UITableViewCell(style: .default, reuseIdentifier: "line")
         cell.selectionStyle = .none; cell.backgroundColor = .clear
         cell.contentView.subviews.forEach { $0.removeFromSuperview() }
         let stack = UIStackView(); stack.axis = .horizontal; stack.alignment = .center
-        if isTable {
-            for span in cells[indexPath.row] {
-                let label = UILabel(); label.attributedText = attributed(document, range: span.range, traits: traitCollection)
-                label.textAlignment = span.alignment == "right" ? .right : span.alignment == "center" ? .center : .left
-                label.numberOfLines = 2; label.widthAnchor.constraint(equalToConstant: contentWidth / CGFloat(max(1, cells[indexPath.row].count)) - 16).isActive = true
-                stack.addArrangedSubview(label)
-            }
-            stack.spacing = 16
-        } else {
-            let number = UILabel(); number.text = String(indexPath.row + 1); number.textColor = .tertiaryLabel; number.textAlignment = .right
-            number.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular); number.widthAnchor.constraint(equalToConstant: 40).isActive = true
-            let label = UILabel(); label.attributedText = attributed(document, range: lines[indexPath.row], traits: traitCollection, candidates: lineSpans?[indexPath.row])
-            stack.addArrangedSubview(number); stack.addArrangedSubview(label); stack.spacing = 12
+        for span in cells[indexPath.row] {
+            let label = UILabel(); label.attributedText = attributed(document, range: span.range, traits: traitCollection)
+            label.textAlignment = span.alignment == "right" ? .right : span.alignment == "center" ? .center : .left
+            label.numberOfLines = 2; label.widthAnchor.constraint(equalToConstant: contentWidth / CGFloat(max(1, cells[indexPath.row].count)) - 16).isActive = true
+            stack.addArrangedSubview(label)
         }
+        stack.spacing = 16
         cell.contentView.addSubview(stack); stack.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: 8), stack.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -8), stack.topAnchor.constraint(equalTo: cell.contentView.topAnchor), stack.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor)])
         return cell
     }
+}
+/// Owns its labels and constraints for the lifetime of the reusable code cell.
+private final class CodeLineCell: UITableViewCell {
+    let number = UILabel()
+    let code = UILabel()
+    init() {
+        super.init(style: .default, reuseIdentifier: "code-line")
+        selectionStyle = .none; backgroundColor = .clear
+        number.textColor = .tertiaryLabel; number.textAlignment = .right
+        number.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+        number.widthAnchor.constraint(equalToConstant: 40).isActive = true
+        let stack = UIStackView(arrangedSubviews: [number, code])
+        stack.axis = .horizontal; stack.alignment = .center; stack.spacing = 12
+        contentView.addSubview(stack); stack.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
+            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError("Use init()") }
 }
 /// Bucket intersecting spans once, preserving their original application order.
 /// Code rows then style only their own runs instead of scanning the whole file.

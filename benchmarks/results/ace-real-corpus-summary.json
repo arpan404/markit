@@ -1,0 +1,104 @@
+{
+  "threadsExamined": 200,
+  "uniqueAssistantMessages": 5549,
+  "selection": "Completed assistant messages from latest workspace threads; byte-size quantiles and syntax-heavy full messages; exact extracted code fences",
+  "populationBytes": {
+    "min": 2,
+    "median": 106,
+    "max": 34505
+  },
+  "cases": {
+    "real_p000": {
+      "sourceBytes": 2,
+      "lines": 1,
+      "fenceMarkers": 0,
+      "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+    },
+    "real_p010": {
+      "sourceBytes": 51,
+      "lines": 1,
+      "fenceMarkers": 0,
+      "sha256": "19289ebcebed58add565ef5812cb3e19884879a183a4d1900d129845548b4693"
+    },
+    "real_p025": {
+      "sourceBytes": 74,
+      "lines": 1,
+      "fenceMarkers": 0,
+      "sha256": "bb7cfbbc312512b46d630be9af97f5ab87be0b2e27712a263f069789de6dc6ca"
+    },
+    "real_p050": {
+      "sourceBytes": 106,
+      "lines": 1,
+      "fenceMarkers": 0,
+      "sha256": "f3cbb1bf4ee3e262a7a0be622a17322e72910ff2279c9dbda79a47b7c201c552"
+    },
+    "real_p075": {
+      "sourceBytes": 151,
+      "lines": 1,
+      "fenceMarkers": 0,
+      "sha256": "7d2abdc67b40042e629967e414991b475324ee81afa84a80ac29ef942d9b5b8a"
+    },
+    "real_p090": {
+      "sourceBytes": 199,
+      "lines": 1,
+      "fenceMarkers": 0,
+      "sha256": "eeec7aad9748ca0bc435544a71e28970979b859e1e22884849f2ec38a0f85ef9"
+    },
+    "real_p095": {
+      "sourceBytes": 825,
+      "lines": 15,
+      "fenceMarkers": 0,
+      "sha256": "388a980f514c756760ad6c9183c874296dc6fb8aa364a29f3c82be99773ca23d"
+    },
+    "real_p099": {
+      "sourceBytes": 5789,
+      "lines": 42,
+      "fenceMarkers": 0,
+      "sha256": "0d1680afb0a6c2902bf0a05a7b2635abf3a41dea333c84ca38520f86b8dd670e"
+    },
+    "real_p100": {
+      "sourceBytes": 34505,
+      "lines": 238,
+      "fenceMarkers": 0,
+      "sha256": "778364c957405ecdcba5aac691cb13c5acdda2e44fceecebba7fda9ed3c28060"
+    },
+    "real_most_fences": {
+      "sourceBytes": 7738,
+      "lines": 75,
+      "fenceMarkers": 4,
+      "sha256": "3b1c80cdca74ed3b5b31f40ba16795f32f60d613e4090010475e6f88946a63c0"
+    },
+    "real_most_table_rows": {
+      "sourceBytes": 34505,
+      "lines": 238,
+      "fenceMarkers": 0,
+      "sha256": "778364c957405ecdcba5aac691cb13c5acdda2e44fceecebba7fda9ed3c28060"
+    },
+    "real_most_list_items": {
+      "sourceBytes": 6271,
+      "lines": 76,
+      "fenceMarkers": 0,
+      "sha256": "889d249ab34df6a97528de7ed69958bdc4946ea84fc68fc035a407a30e5e9ca3"
+    },
+    "code_real_largest_fence": {
+      "sourceBytes": 973,
+      "lines": 12,
+      "fenceMarkers": 2,
+      "sha256": "6fb04314d5b901a97c3332bfa4f36bf12c7fb4a5c3f8301148901669a25f1a12"
+    },
+    "code_real_median_fence": {
+      "sourceBytes": 400,
+      "lines": 7,
+      "fenceMarkers": 2,
+      "sha256": "20e70e7a5853fe31bc4ad3b06bf7494ad61a59c13de13bd351a0903ef41fad2f"
+    },
+    "table_real_largest": {
+      "sourceBytes": 4135,
+      "lines": 20,
+      "fenceMarkers": 0,
+      "sha256": "3a596fbe9bc97f3eec0eda816582be777f221922b016b7042b5af8c77c67dea9"
+    }
+  },
+  "aceSourceCommit": "f76c34dc2f47471c09a35b94a5c2489399810d51",
+  "notes": "Anonymous workload metadata only. Source texts remain outside the repository. Corpus includes individual messages and exact extracted fences/table blocks."
+}

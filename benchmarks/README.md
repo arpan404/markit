@@ -74,3 +74,23 @@ python3 benchmarks/run-mobile.py android --device "$ANDROID_DEVICE" --out benchm
 The runner launches the installed app with benchmark arguments and collects its output. The iOS JSON is in the app's Documents directory; Android emits one JSON logcat record per fixture. The app must finish within 60 seconds. App installation, startup and benchmark output I/O are outside the measured intervals. No personal app data is cleared.
 
 Viewport samples synchronously construct/layout a new renderer from a decoded document. Scroll samples move the outer document list to its end and request layout; they exclude presentation and nested code-pane scrolling. The code5000 fixture exceeds the highlighting cap and exercises exact plain-text fallback. No physical-device, frame-time, memory, battery, or equivalent Ace native UI comparison is claimed. See the report for device identifiers, raw samples and known limitations.
+
+The native app harness also records `codeScrollRoundTripsMs` for code fixtures. Each observation performs eight bottom/top scroll round trips inside the bounded code pane, requesting layout at both ends. This exercises row rebinding and reuse. It remains synchronous UI work, excluding GPU presentation and frame cadence. The outer document scroll measurement is still recorded separately.
+
+## Private saved Ace transcripts
+
+Export completed assistant Markdown from the real Ace SQLite store without changing the database. The exporter opens it read-only, takes a short read transaction, scopes by exact workspace path, and examines the most recently updated 200 threads by default. It reconstructs external UTF-16 text chunks when present. It selects byte-size quantiles and syntax-heavy full messages, plus exact extracted code/table blocks. Duplicate message texts are removed, so the quantiles describe unique messages, not UI traffic frequencies.
+
+Keep the corpus outside the checkout. For example:
+
+```sh
+python3 benchmarks/export-ace-corpus.py --workspace "$ACE_WORKSPACE" --out /tmp/markit-private-corpus
+python3 benchmarks/run-mobile.py ios --device "$IOS_DEVICE" \
+  --fixtures /tmp/markit-private-corpus/fixtures.json --out benchmarks/results/ios-real-after.json
+python3 benchmarks/run-mobile.py android --device "$ANDROID_DEVICE" \
+  --fixtures /tmp/markit-private-corpus/fixtures.json --out benchmarks/results/android-real-after.json
+```
+
+`--db` selects another Ace events database and `--threads` changes the sample size. Use the same frozen `fixtures.json` for both variants. Build/install each release demo before running it, as above. The runner copies private input into app data at runtime, not into the source tree or app bundle. The extractor rejects output directories within the repository. Do not commit transcript text. Only anonymous sizes, counts, hashes and timing samples are retained here.
+
+The real-corpus harness measures each message independently. It does not reconstruct streaming schedules or run the entire Ace client. `tableScrollRoundTripsMs` performs eight bottom/top round trips inside an extracted table, separate from code-pane and outer-list scroll metrics. Preserve message boundaries when interpreting results. Physical-device frame times and a full-client baseline remain separate work.

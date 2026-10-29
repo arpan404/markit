@@ -34,3 +34,11 @@ On 2026-10-28, rebuilding stale web artifacts restored all 31 Playwright tests o
 ## iOS code viewport
 
 Long highlighted code panes bucket spans by line once rather than scanning the entire document for each visible line. Small or unhighlighted panes retain the direct scan. On iOS 27 Simulator, the release 1,000-line fixture's median synchronous viewport layout fell from 18.13 to 12.75 ms. This is a host simulator result, not device FPS. Indexing adds span-reference storage; peak memory is unmeasured. Android release app measurements are also retained. See [native app viewport results](benchmark-comparison.md#native-app-viewport-benchmarks-2026-10-28).
+
+## Reusable native code cells
+
+Both native renderers now retain line-number and code-text views as cells are rebound. UIKit retains the stack and constraints too. Android indexes spans by line for long highlighted blocks and avoids table-cell work in code panes. In release simulator/emulator runs, eight highlighted-code scroll round trips fell from 113.23 to 38.80 ms on iOS and 22.86 to 14.81 ms on Android. These are synchronous binding/layout costs, not device frame times. See [the native reuse comparison](benchmark-comparison.md#native-code-cell-reuse-follow-up) for raw samples, tests and limits.
+
+## Real transcript follow-up
+
+A frozen sample of 5,549 unique saved Ace assistant messages changed the focus from giant code blocks to short messages and table/list-heavy answers. iOS first-document loading now uses a data reload rather than a batch of row insertions. The real list-heavy fixture's initial viewport fell from 39.45 to 14.44 ms. Android reuses table column views and indexes spans for large tables; eight scroll round trips through an extracted real table fell from 14.37 to 6.49 ms. Typical short messages were essentially unchanged. These are warm simulator/emulator UI timings, not physical-device or full Ace app measurements. See [the real transcript report](benchmark-comparison.md#real-ace-sqlite-transcript-workload), including the iOS first-load versus later-scroll tradeoff. No transcript text is committed.
