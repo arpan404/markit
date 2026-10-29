@@ -41,17 +41,27 @@ data class MarkitDocument(val version: Int, val text: String, val spans: List<Ma
     }
 }
 data class MarkitReference(val kind: String, val target: String)
+/**
+ * Which dialect a render uses. [DEFAULT] is agent prose (raw HTML shows as text);
+ * [GITHUB] is for PR, issue and comment bodies: footnotes, alerts, an allowlisted
+ * HTML subset, task spans with source offsets, forge references, emoji and diagrams.
+ */
+enum class MarkitFlavor(val code: Int) { DEFAULT(0), GITHUB(1) }
 data class MarkitPatch(val replaceFrom: Int, val documents: List<MarkitDocument>, val finalized: Boolean)
 
 object Markit {
     init { System.loadLibrary("markit_ffi") }
     @JvmStatic private external fun nativeRender(source: String, format: Int): String
+    @JvmStatic private external fun nativeRenderFlavor(source: String, format: Int, flavor: Int): String
     @JvmStatic external fun nativeCreateStream(): Long
+    @JvmStatic external fun nativeCreateStreamFlavor(flavor: Int): Long
     @JvmStatic external fun nativeAppend(handle: Long, delta: String, finalized: Boolean): String
     /** MKNP v2 patch bytes. See docs/binary-transport.md. */
     @JvmStatic external fun nativeAppendPatch(handle: Long, delta: String, finalized: Boolean): ByteArray
     @JvmStatic external fun nativeFreeStream(handle: Long)
-    fun parse(source: String): MarkitDocument = MarkitDocument.decode(JSONObject(nativeRender(source, 0)))
+    fun parse(source: String, flavor: MarkitFlavor = MarkitFlavor.DEFAULT): MarkitDocument =
+        MarkitDocument.decode(JSONObject(if (flavor == MarkitFlavor.DEFAULT) nativeRender(source, 0) else nativeRenderFlavor(source, 0, flavor.code)))
+    /** Colours the whole source (up to 8 MiB of UTF-8; larger sources stay plain). Unknown non-empty languages use a generic lexer; "" and "text" stay plain. */
     fun highlight(source: String, language: String, fullGrammar: Boolean = false): MarkitDocument = MarkitDocument.decode(JSONObject(nativeRender(JSONObject().put("source", source).put("language", language).toString(), if (fullGrammar) 3 else 2)))
 }
 /**
@@ -59,8 +69,8 @@ object Markit {
  * only its appended text and changed spans, applied to the block this stream
  * already holds, so a long live fence stays proportional to each append.
  */
-class MarkitStream : Closeable {
-    private var handle = Markit.nativeCreateStream()
+class MarkitStream(val flavor: MarkitFlavor = MarkitFlavor.DEFAULT) : Closeable {
+    private var handle = if (flavor == MarkitFlavor.DEFAULT) Markit.nativeCreateStream() else Markit.nativeCreateStreamFlavor(flavor.code)
     private val documents = ArrayList<MarkitDocument>()
     private var failed = false
     @Synchronized fun append(delta: String, finalized: Boolean = false): MarkitPatch {

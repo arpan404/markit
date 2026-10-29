@@ -50,11 +50,47 @@ public struct MarkitSpan: Decodable, Sendable {
     public let alignment: String?
     public let target: String?
     public let reference_kind: String?
+    /// GitHub flavour: `alert` kind (`note`, `tip`, `important`, `warning`, `caution`).
+    public let alert: String?
+    /// GitHub flavour: footnote label and number.
+    public let label: String?
+    public let number: Int?
+    /// GitHub flavour: a `task` box's order and the UTF-16 source offset of
+    /// the character inside its `[ ]`, and whether it is ticked.
+    public let index: Int?
+    public let offset: Int?
+    public let checked: Bool?
+    /// GitHub flavour: a `diagram` span's source (its `language` is set too).
+    public let source: String?
+    /// GitHub flavour: the element of an `html` span (`kbd`, `sub`, `details`, ...).
+    public let tag: String?
     public var range: NSRange { NSRange(location: start, length: end - start) }
 }
-public struct MarkitReference: Sendable {
+
+/// Which dialect a render uses. `.standard` is agent prose (raw HTML shows as
+/// text); `.github` is for PR, issue and comment bodies.
+public enum MarkitFlavor: UInt32, Sendable {
+    case standard = 0
+    case github = 1
+}
+/// A link into the host's world. `kind` is `file`, `thread` or `pull_request`
+/// from agent prose; the GitHub flavour adds `mention` (`login` or
+/// `org/team`), `issue` (`#123` or `owner/repo#123`), `commit` (a SHA or
+/// `owner/repo@sha`) and, in inline views, `footnote` (the footnote's label).
+public struct MarkitReference: Sendable, Equatable {
     public let kind: String
     public let target: String
+    public init(kind: String, target: String) { self.kind = kind; self.target = target }
+}
+/// A GitHub-flavour task box the reader tapped. `offset` is the UTF-16 index
+/// of the character inside its `[ ]` in the Markdown source, so the host
+/// rewrites exactly that character (`" "` or `"x"`); `index` is the box's
+/// order and `checked` is the state the reader asked for.
+public struct MarkitTask: Sendable, Equatable {
+    public let index: Int
+    public let offset: Int
+    public let checked: Bool
+    public init(index: Int, offset: Int, checked: Bool) { self.index = index; self.offset = offset; self.checked = checked }
 }
 public struct MarkitPatch: Decodable, Sendable {
     public struct Block: Decodable, Sendable { public let document: MarkitDocument }
@@ -67,16 +103,19 @@ public struct MarkitPatch: Decodable, Sendable {
 public enum MarkitError: Error { case renderFailed(status: UInt32), documentTooLarge }
 
 public enum Markit {
-    public static func parse(_ source: String) throws -> MarkitDocument {
-        try request(Array(source.utf8), format: 0)
+    public static func parse(_ source: String, flavor: MarkitFlavor = .standard) throws -> MarkitDocument {
+        try request(Array(source.utf8), format: 0, flavor: flavor)
     }
+    /// Colours the whole source (up to 8 MiB of UTF-8; larger sources stay plain).
+    /// Unknown non-empty languages use a generic lexer; "" and "text" stay plain.
+    /// Large files decode faster through `MarkitBinaryPlan.highlight`.
     public static func highlight(_ source: String, language: String, fullGrammar: Bool = false) throws -> MarkitDocument {
         let data = try JSONSerialization.data(withJSONObject: ["source": source, "language": language])
         return try request(Array(data), format: fullGrammar ? 3 : 2)
     }
-    private static func request(_ bytes: [UInt8], format: UInt32) throws -> MarkitDocument {
+    private static func request(_ bytes: [UInt8], format: UInt32, flavor: MarkitFlavor = .standard) throws -> MarkitDocument {
         guard bytes.count <= 16 * 1024 * 1024 else { throw MarkitError.documentTooLarge }
-        let buffer = bytes.withUnsafeBufferPointer { markit_render($0.baseAddress, $0.count, format) }
+        let buffer = bytes.withUnsafeBufferPointer { markit_render_flavor($0.baseAddress, $0.count, format, flavor.rawValue) }
         return try decode(buffer)
     }
     static func decode<T: Decodable>(_ buffer: MarkitBuffer) throws -> T {
@@ -96,7 +135,11 @@ public final class MarkitStream: @unchecked Sendable {
     /// Current blocks, the base for fence extensions.
     private var documents: [MarkitDocument] = []
     private var failed = false
-    public init() { handle = markit_stream_new()! }
+    public let flavor: MarkitFlavor
+    public init(flavor: MarkitFlavor = .standard) {
+        self.flavor = flavor
+        handle = markit_stream_new_flavor(flavor.rawValue)!
+    }
     deinit { markit_stream_free(handle) }
     public func append(_ delta: String, finalized: Bool = false) throws -> MarkitPatch {
         lock.lock(); defer { lock.unlock() }

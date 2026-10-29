@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test.beforeEach(async ({ page }) => { await page.goto('/'); await expect(page.getByRole('status')).toContainText('Ready'); });
+test.beforeEach(async ({ page }) => { await page.goto('/'); await expect(page.locator('#status')).toContainText('Ready'); });
 test('Wasm worker renders code, math, tables, tasks, and reference actions', async ({ page }) => {
   await expect(page.locator('#preview h1')).toHaveText('One shared engine');
   await expect(page.locator('#preview .mk-math')).toHaveCount(2);
@@ -8,7 +8,7 @@ test('Wasm worker renders code, math, tables, tasks, and reference actions', asy
   await expect(page.locator('#preview input[type=checkbox]')).toHaveCount(3);
   await expect(page.locator('#preview [style*="--mk-dark"]')).not.toHaveCount(0);
   await page.locator('[data-markit-reference="src/hello.ts:12"]').press('Enter');
-  await expect(page.getByRole('status')).toContainText('file: src/hello.ts:12');
+  await expect(page.locator('#status')).toContainText('file: src/hello.ts:12');
 });
 test('raw HTML stays inert and unauthorized images never make network requests', async ({ page }) => {
   const requests = [];
@@ -101,6 +101,33 @@ test('compact worker highlighting exactly matches legacy tokens and colors', asy
     return results;
   });
   expect(results.every(result => result.equal && result.preserved)).toBe(true);
+});
+
+test('worker highlighting colours a whole large file and unknown languages', async ({ page }) => {
+  await page.goto('/'); await expect(page.locator('#status')).toContainText('Ready');
+  const result = await page.evaluate(async () => {
+    // About 680 KB and 160k runs: far past the 8,192-run fence budget.
+    const source = 'const x = 1; // note\n'.repeat(32000) + 'return "end";\n';
+    const large = await window.renderer.highlight(source, 'ts');
+    const unknown = await window.renderer.highlight('# note\nvalue = "text" 42\n', 'conf-unknown');
+    const colour = (code, text) => code.tokens.find(token => token.text === text)?.light;
+    return {
+      plain: large.plain,
+      runs: large.tokens.length,
+      preserved: large.tokens.map(t => t.text).join('') === source,
+      last: large.tokens.at(-2).text + '|' + large.tokens.at(-2).light,
+      unknownPlain: unknown.plain,
+      comment: colour(unknown, '# note'),
+      string: colour(unknown, '"text"'),
+    };
+  });
+  expect(result.plain).toBe(false);
+  expect(result.runs).toBeGreaterThan(100000);
+  expect(result.preserved).toBe(true);
+  expect(result.last).toBe('"end"|#0a3069');
+  expect(result.unknownPlain).toBe(false);
+  expect(result.comment).toBe('#6e7781');
+  expect(result.string).toBe('#0a3069');
 });
 
 test('unavailable WebGPU keeps source, syntax colors, and copying on the text backend', async ({page}) => {

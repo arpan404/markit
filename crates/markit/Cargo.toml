@@ -26,6 +26,11 @@ two-face = { version = "0.5.2", default-features = false, features = ["syntect-o
 syntect = { version = "5.3", default-features = false, features = ["parsing", "regex-fancy"], optional = true }
 two-face = { version = "0.5.2", default-features = false, features = ["syntect-fancy"], optional = true }
 
+[dev-dependencies]
+# Source of the generated shortcode table in src/github/emoji_table.rs only;
+# never linked into the library.
+emojis = { version = "0.9.1", default-features = false }
+
 [[bench]]
 name = "throughput"
 harness = false

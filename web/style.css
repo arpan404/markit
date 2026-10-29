@@ -1,5 +1,5 @@
-.markit { --mk-ink:#24292f; --mk-muted:#6e7781; --mk-border:#d0d7de; --mk-surface:#f6f8fa; color:var(--mk-ink); font:16px/1.65 system-ui,sans-serif; overflow-wrap:anywhere; }
-@media(prefers-color-scheme:dark) { .markit { --mk-ink:#e6edf3; --mk-muted:#8b949e; --mk-border:#30363d; --mk-surface:#161b22; } }
+.markit { --mk-ink:#24292f; --mk-muted:#6e7781; --mk-border:#d0d7de; --mk-surface:#f6f8fa; --mk-added:#1a7f37; --mk-removed:#cf222e; --mk-added-bg:#2ea04326; --mk-removed-bg:#f8514926; color:var(--mk-ink); font:16px/1.65 system-ui,sans-serif; overflow-wrap:anywhere; }
+@media(prefers-color-scheme:dark) { .markit { --mk-ink:#e6edf3; --mk-muted:#8b949e; --mk-border:#30363d; --mk-surface:#161b22; --mk-added:#3fb950; --mk-removed:#f85149; } }
 .markit.mk-pending { white-space:pre-wrap; }
 .markit .mk-block { content-visibility:auto; contain-intrinsic-size:auto 80px; margin:0 0 16px; }
 .markit :is(p,h1,h2,h3,h4,h5,h6,ul,ol,pre,blockquote,table) { margin:0 0 12px; }
@@ -12,7 +12,17 @@
 .markit :is(td,th) { border:1px solid var(--mk-border); padding:8px 12px; min-width:90px; }
 .markit th { background:var(--mk-surface); } .markit img { max-width:100%; max-height:420px; object-fit:contain; }
 .markit .mk-codeblock { border:1px solid var(--mk-border); border-radius:8px; overflow:hidden; }
-.markit .mk-codeblock header { display:flex; justify-content:space-between; gap:12px; align-items:center; padding:8px 12px; background:var(--mk-surface); font:12px system-ui; color:var(--mk-muted); }
+.markit .mk-codeblock header { display:flex; gap:8px; align-items:center; min-width:0; padding:6px 8px 6px 12px; background:var(--mk-surface); border-bottom:1px solid var(--mk-border); font:12px system-ui; color:var(--mk-muted); }
+.markit .mk-code-title { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; white-space:nowrap; }
+.markit .mk-code-title[title] { min-width:0; overflow:hidden; text-overflow:ellipsis; direction:rtl; text-align:left; color:var(--mk-ink); }
+.markit .mk-diff-stat { flex-shrink:0; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-variant-numeric:tabular-nums; }
+.markit .mk-diff-added { color:var(--mk-added); } .markit .mk-diff-removed { color:var(--mk-removed); }
+.markit .mk-codeblock header button { margin-left:auto; flex-shrink:0; border-color:transparent; padding:2px 6px; font:inherit; }
+.markit .mk-codeblock header button:hover,.markit .mk-codeblock:hover header button { color:var(--mk-ink); }
+.markit .mk-copy-status { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+.markit .mk-codeblock[data-collapsed] pre { max-height:calc(var(--mk-collapse-lines, 20) * 22px); padding-bottom:0; overflow-y:hidden; }
+.markit .mk-codeblock .mk-code-toggle { display:block; width:100%; text-align:left; border:0; border-top:1px solid var(--mk-border); border-radius:0; padding:6px 12px; font:12px system-ui; color:var(--mk-muted); }
+.markit .mk-codeblock .mk-code-toggle:hover { color:var(--mk-ink); }
 .markit button { color:inherit; background:transparent; border:1px solid var(--mk-border); padding:4px 8px; border-radius:4px; cursor:pointer; }
 .markit button:focus-visible,.markit [role=link]:focus-visible { outline:2px solid #0969da; outline-offset:2px; }
 .markit pre { overflow:auto; margin:0; padding:10px 0; tab-size:4; }
@@ -22,7 +32,14 @@
 .markit .mk-line { display:block; min-height:22px; height:22px; padding-right:16px; white-space:pre; }
 .markit .mk-line::before { content:attr(data-line); display:inline-block; min-width:3ch; padding:0 14px; text-align:right; color:var(--mk-muted); user-select:none; }
 .markit .mk-line span { white-space:pre; } .markit .mk-line span:last-child { line-height:22px; }
-.markit .mk-diff-addition { background:#2ea04326; } .markit .mk-diff-deletion { background:#f8514926; } .markit .mk-diff-meta { color:var(--mk-muted); }
+.markit .mk-line:last-child:empty { display:none; }
+.markit [data-numbers=off] .mk-line::before { content:none; } .markit [data-numbers=off] .mk-line { padding-left:14px; }
+.markit .mk-line[class*=mk-diff-]::before { content:attr(data-old); min-width:3ch; padding:0 6px 0 10px; }
+.markit .mk-line[class*=mk-diff-] > :is(ins,del,span)::before { content:attr(data-new); display:inline-block; min-width:3ch; padding:0 12px 0 6px; text-align:right; color:var(--mk-muted); user-select:none; }
+.markit [data-numbers=off] .mk-line[class*=mk-diff-] > :is(ins,del,span)::before { content:none; }
+.markit .mk-line ins,.markit .mk-line del { text-decoration:none; }
+.markit .mk-diff-addition { background:var(--mk-added-bg); box-shadow:inset 2px 0 var(--mk-added); } .markit .mk-diff-deletion { background:var(--mk-removed-bg); box-shadow:inset 2px 0 var(--mk-removed); }
+.markit .mk-diff-hunk { background:var(--mk-surface); color:var(--mk-muted); } .markit .mk-diff-meta { color:var(--mk-muted); }
 .markit .mk-virtual-code { height:320px; } .markit .mk-spacer { display:block; }
 .markit .mk-gpu-host { position:relative; }
 .markit .mk-gpu-canvas { position:absolute; top:0; left:0; pointer-events:none; }
@@ -32,3 +49,14 @@
 .markit .mk-gpu-active code { font-variant-ligatures:none; }
 .markit .mk-math { display:inline-block; vertical-align:middle; max-width:100%; overflow-x:auto; }
 .markit .mk-math svg { display:block; max-width:none; } .markit .mk-display { display:block; padding:12px 0; }
+.markit .mk-alert { border-left:4px solid var(--mk-alert,#0969da); padding:4px 16px; margin:0 0 16px; }
+.markit .mk-alert>:last-child { margin-bottom:0; }
+.markit .mk-alert-title { font-weight:600; color:var(--mk-alert,#0969da); margin:0 0 4px; }
+.markit .mk-alert-tip { --mk-alert:#1a7f37; } .markit .mk-alert-important { --mk-alert:#8250df; }
+.markit .mk-alert-warning { --mk-alert:#9a6700; } .markit .mk-alert-caution { --mk-alert:#cf222e; }
+.markit .mk-footnotes { border-top:1px solid var(--mk-border); color:var(--mk-muted); font-size:0.875em; }
+.markit [data-markit-footnote],.markit [data-markit-footnote-back] { cursor:pointer; }
+.markit .mk-diagram>.mk-diagram-drawn { display:block; max-width:100%; height:auto; }
+.markit kbd { border:1px solid var(--mk-border); border-bottom-width:2px; border-radius:4px; padding:0 4px; font:0.85em ui-monospace,monospace; }
+.markit details>summary { cursor:pointer; }
+.markit video { max-width:100%; }

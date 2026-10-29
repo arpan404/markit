@@ -73,6 +73,20 @@ the sentinel `0xffffffff`; the empty file string differs from absence.
 | 20 | table_cell | a: row, b: column, c: header boolean, d: alignment string ID |
 | 21 | syntax | a: light RGB, b: dark RGB, each 0x00RRGGBB |
 | 22 | syntax | a: light string ID, b: dark string ID |
+| 23 | alert | a: alert kind string ID (`note`, `tip`, `important`, `warning`, `caution`) |
+| 24 | footnote_reference | a: label string ID, b: number |
+| 25 | footnote_definition | a: label string ID, b: number |
+| 26 | task | a: index, b: UTF-16 source offset, c: checked boolean |
+| 27 | diagram | a: language string ID, b: source string ID |
+| 28 | video | a: URL string ID |
+| 29 | html | a: tag string ID |
+| 30 | dark_image | a: URL string ID |
+
+Tags 23 to 30 only occur in GitHub flavour documents. They are additive: the
+record layout, header and transport version are unchanged (MKBP 1, MKNP 2,
+MKWP 1). The bundled Swift, Kotlin and test readers decode them; an older
+reader that rejects unknown tags must be updated before it reads GitHub
+flavour output.
 
 Booleans are 0 or 1. Tag 21 is used for non-palette canonical lowercase RGB
 colors, including grammar colors. Tag 22 preserves unusual public Rust Document

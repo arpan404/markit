@@ -5,11 +5,30 @@ import UIKit
 /// images in the host. This view never fetches URLs or creates a WebView.
 @MainActor public final class MarkitView: UIView, UITableViewDataSource, UITextViewDelegate {
     public var onLink: ((URL) -> Void)?
+    /// App references; in the GitHub flavour also `mention`, `issue`, `commit` and `footnote`.
     public var onReference: ((MarkitReference) -> Void)?
+    /// GitHub flavour: a task box was tapped. Boxes are tappable only while this is set.
+    public var onTask: ((MarkitTask) -> Void)? {
+        didSet { if (oldValue == nil) != (onTask == nil) { table.reloadData() } }
+    }
+    /// The dialect of the Markdown. Changing it renders the current text again.
+    public var flavor: MarkitFlavor = .standard {
+        didSet {
+            guard oldValue != flavor else { return }
+            worker = RenderWorker(flavor: flavor)
+            guard let source = previous else { return }
+            previous = nil
+            render(source, finalized: finalized)
+        }
+    }
     public var resolveImage: ((String) -> UIImage?)?
     public var onError: ((Error) -> Void)?
+    /// Fonts, colours and spacing. Keep one value per appearance in the host.
+    public var theme: MarkitTheme = .standard {
+        didSet { if oldValue != theme { table.reloadData() } }
+    }
     private let table = UITableView(frame: .zero, style: .plain)
-    private let worker = RenderWorker()
+    private var worker = RenderWorker()
     private var generation = 0
     private var previous: String?
     private var finalized = true
@@ -35,15 +54,17 @@ import UIKit
         previous = source; self.finalized = finalized; generation += 1
         let revision = generation
         worker.submit(source, finalized: finalized) { [weak self] result in
-            DispatchQueue.main.async {
-                guard let self, self.previous != nil else { return }
-                switch result {
-                case .success(let output):
-                    self.dirty = min(self.dirty, output.changedFrom)
-                    if self.generation == revision { self.display(output.documents, changedFrom: self.dirty); self.dirty = Int.max }
-                case .failure(let error): if self.generation == revision { self.onError?(error) }
-                }
-            }
+            guard let self else { return }
+            markitOnMain { self.receive(result, revision: revision) }
+        }
+    }
+    private func receive(_ result: Result<RenderWorker.Output, Error>, revision: Int) {
+        guard previous != nil else { return }
+        switch result {
+        case .success(let output):
+            dirty = min(dirty, output.changedFrom)
+            if generation == revision { display(output.documents, changedFrom: dirty); dirty = Int.max }
+        case .failure(let error): if generation == revision { onError?(error) }
         }
     }
     public func setDocument(_ document: MarkitDocument) { generation += 1; previous = nil; dirty = 0; display([document], changedFrom: 0) }
@@ -84,12 +105,14 @@ import UIKit
         let inset = row.kind == "code" || row.kind == "table" ? CGFloat(row.document.spans.filter { ($0.kind == "list_item" || $0.kind == "quote") && $0.start <= row.range.location && $0.end >= NSMaxRange(row.range) }.map { $0.depth ?? 1 }.max() ?? 0) * 16 : 0
         let stack = UIStackView(); stack.axis = .vertical; stack.spacing = 10
         if row.kind == "code" || row.kind == "table" {
-            stack.addArrangedSubview(MarkitRowsPane(document: row.document, range: row.range, kind: row.kind, availableWidth: max(200, tableView.bounds.width - 24 - inset)))
+            stack.addArrangedSubview(MarkitRowsPane(document: row.document, range: row.range, kind: row.kind, availableWidth: max(200, tableView.bounds.width - 24 - inset), theme: theme))
         } else {
             let text = CopyTextView(); text.isEditable = false; text.isScrollEnabled = false; text.delegate = self
             text.backgroundColor = .clear; text.textContainerInset = .zero; text.textContainer.lineFragmentPadding = 0
             text.adjustsFontForContentSizeCategory = true
-            text.attributedText = attributed(row.document, range: row.range, traits: traitCollection)
+            var styler = MarkitStyler(theme: theme, traits: traitCollection)
+            styler.tasksEnabled = onTask != nil
+            text.attributedText = styler.attributed(row.document, range: row.range)
             stack.addArrangedSubview(text)
             for span in row.document.spans where span.kind == "image" && NSIntersectionRange(span.range, row.range).length > 0 {
                 if let url = span.url, let image = resolveImage?(url) {
@@ -105,6 +128,10 @@ import UIKit
         return cell
     }
     public func textView(_ textView: UITextView, shouldInteractWith URL: URL, in characterRange: NSRange, interaction: UITextItemInteraction) -> Bool {
+        if let task = MarkitTask(toggling: textView.attributedText.attributes(at: characterRange.location, effectiveRange: nil)) {
+            if interaction == .invokeDefaultAction { onTask?(task) }
+            return false
+        }
         if let target = textView.attributedText.attribute(.markitReference, at: characterRange.location, effectiveRange: nil) as? String {
             let kind = textView.attributedText.attribute(.markitReferenceKind, at: characterRange.location, effectiveRange: nil) as? String ?? "file"
             onReference?(MarkitReference(kind: kind, target: target)); return false

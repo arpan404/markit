@@ -65,6 +65,14 @@ pub fn decode(bytes: &[u8]) -> Value {
                 json!({"kind":"syntax","light":format!("#{:06x}",a(0)),"dark":format!("#{:06x}",a(1))})
             }
             22 => json!({"kind":"syntax","light":string(a(0)),"dark":string(a(1))}),
+            23 => json!({"kind":"alert","alert":string(a(0))}),
+            24 => json!({"kind":"footnote_reference","label":string(a(0)),"number":a(1)}),
+            25 => json!({"kind":"footnote_definition","label":string(a(0)),"number":a(1)}),
+            26 => json!({"kind":"task","index":a(0),"offset":a(1),"checked":a(2)!=0}),
+            27 => json!({"kind":"diagram","language":string(a(0)),"source":string(a(1))}),
+            28 => json!({"kind":"video","url":string(a(0))}),
+            29 => json!({"kind":"html","tag":string(a(0))}),
+            30 => json!({"kind":"dark_image","url":string(a(0))}),
             tag => panic!("unknown tag {tag}"),
         };
         style["start"] = json!(w(at));

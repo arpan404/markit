@@ -27,13 +27,15 @@ fn highlighting_preserves_source_and_supports_ace_languages() {
 }
 
 #[test]
-fn oversized_and_unknown_code_falls_back_without_losing_text() {
+fn sources_over_eight_mib_and_plain_text_languages_stay_plain_without_losing_text() {
     for (source, language) in [
-        ("x".repeat(1_100_000), "rust"),
-        ("😀\n".into(), "unknown-markit-language"),
+        ("x".repeat(8 * 1024 * 1024 + 1), "rust"),
+        ("😀 \"quoted\" // not a comment\n".into(), "text"),
+        ("😀 \"quoted\" // not a comment\n".into(), ""),
     ] {
         let highlighted = highlight(&source, language);
-        assert!(highlighted.plain);
+        assert!(highlighted.plain, "{language}");
+        assert_eq!(highlighted.tokens.len(), 1);
         assert_eq!(highlighted.tokens[0].text, source);
     }
 }

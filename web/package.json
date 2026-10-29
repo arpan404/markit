@@ -11,14 +11,21 @@
     "./react": {
       "types": "./react.d.ts",
       "import": "./react.js"
-    }
+    },
+    "./pkg/markit_wasm_bg.wasm": "./pkg/markit_wasm_bg.wasm"
   },
   "files": [
     "index.js",
+    "engine.js",
+    "render-core.js",
+    "frame.js",
+    "dom-morph.js",
+    "code-view.js",
     "worker.js",
     "highlight.js",
     "code-lines.js",
     "gpu-code.js",
+    "github.js",
     "style.css",
     "pkg",
     "licenses",
@@ -30,7 +37,8 @@
     "build": "../scripts/build-web.sh",
     "test": "playwright test",
     "test:gpu": "playwright test --config playwright.gpu.config.js",
-    "serve": "python3 -m http.server 4173 --bind 127.0.0.1"
+    "serve": "python3 -m http.server 4173 --bind 127.0.0.1",
+    "test:node": "node --test tests/node/*.test.mjs"
   },
   "peerDependencies": {
     "react": ">=18"
@@ -46,6 +54,7 @@
     "@tanstack/react-virtual": "^3.14.23",
     "cn": "^0.4.0",
     "esbuild": "^0.28.2",
+    "jsdom": "^30.1.3",
     "katex": "^0.19.1",
     "markdown-it": "^15.0.3",
     "marked": "^18.1.2",

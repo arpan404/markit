@@ -15,7 +15,8 @@ fn put_bytes(out: &mut Vec<u8>, bytes: &[u8]) {
 }
 
 /// Version 1 little-endian patch. `flags` bit 0 embeds source bytes, bit 1 is
-/// a diff fence, bit 2 embeds a file name. Packed words match `highlight_packed`.
+/// a diff fence, bit 2 embeds a file name, bit 3 appends diff rows. Packed
+/// words match `highlight_packed`; diff rows match `diff_rows_packed`.
 pub fn encode_web_patch(patch: &RenderPatch) -> Vec<u8> {
     let mut out = Vec::with_capacity(256);
     out.extend_from_slice(MAGIC);
@@ -47,6 +48,9 @@ fn encode_code(out: &mut Vec<u8>, code: &WebCode) {
     if code.info.file.is_some() {
         flags |= 4;
     }
+    if code.info.diff {
+        flags |= 8;
+    }
     put_u32(out, flags);
     let (start, end) = code.utf16.unwrap_or((0, 0));
     put_u32(out, start);
@@ -62,6 +66,13 @@ fn encode_code(out: &mut Vec<u8>, code: &WebCode) {
     put_u32(out, packed.len() as u32);
     for word in packed {
         put_u32(out, word);
+    }
+    if code.info.diff {
+        let rows = crate::diff_rows_packed(&code.source);
+        put_u32(out, rows.len() as u32);
+        for word in rows {
+            put_u32(out, word);
+        }
     }
 }
 
@@ -116,6 +127,21 @@ mod tests {
         }
         assert_eq!(packed, crate::highlight_packed(&code.source, "rust"));
         assert_eq!(at, encoded.len());
+    }
+
+    #[test]
+    fn diff_fence_patch_ends_with_its_numbered_rows() {
+        let markdown = "```diff\n@@ -1 +1 @@\n-a\n+b\n```\n";
+        let mut stream = StreamRenderer::new_web();
+        let encoded = encode_web_patch(&stream.append(markdown, true));
+        let rows = crate::diff_rows_packed("@@ -1 +1 @@\n-a\n+b\n");
+        assert_eq!(rows[..2], [1, 1]);
+        let mut tail = Vec::new();
+        put_u32(&mut tail, rows.len() as u32);
+        for word in &rows {
+            put_u32(&mut tail, *word);
+        }
+        assert!(encoded.ends_with(&tail));
     }
 
     #[test]

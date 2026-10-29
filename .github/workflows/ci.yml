@@ -24,6 +24,7 @@ jobs:
       - run: npm --prefix web ci
       - run: cd web && npx playwright install --with-deps chromium
       - run: npm --prefix web test
+      - run: npm --prefix web run test:node
       - run: cd web && npm pack --dry-run
       - run: MARKIT_FEATURES=grammars ./scripts/build-web.sh
   ios:
@@ -42,6 +43,13 @@ jobs:
       - run: cargo build -p markit-ffi --release --locked --features "$MARKIT_FEATURES"
       - run: MARKIT_SOURCE_BRIDGE=1 swift test --package-path platforms/ios -Xlinker "$PWD/target/release/libmarkit_ffi.a"
       - run: ./scripts/build-ios.sh
+      # swift test runs on macOS, where UIKit is unavailable; the UIKit views are tested here.
+      - name: UIKit tests on an iOS simulator
+        working-directory: platforms/ios
+        run: |
+          udid=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for k,v in d.items() if "iOS" in k for x in v if x["name"].startswith("iPhone")))')
+          scheme=$(xcodebuild -list -json | python3 -c 'import json,sys; s=json.load(sys.stdin)["workspace"]["schemes"]; print("Markit-Package" if "Markit-Package" in s else "Markit")')
+          xcodebuild test -scheme "$scheme" -destination "id=$udid" CODE_SIGNING_ALLOWED=NO
       - run: brew install xcodegen
       - run: xcodegen generate --spec examples/ios/project.yml
       - run: xcodebuild -project examples/ios/MarkitDemo.xcodeproj -scheme MarkitDemo -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build

@@ -2,6 +2,8 @@ import type { ComponentPropsWithoutRef, ElementType, ForwardRefExoticComponent, 
 import type { MarkitOptions, MarkitRenderer, RenderPatch } from './index.js';
 export { preloadMarkit } from './index.js';
 
+/** `workerURL`, `worker`, `wasm`, `codeRendering`, `code` and `flavor` are read when the element
+ * attaches; changing them later applies to the next attached element. */
 export interface MarkitHookOptions extends MarkitOptions {
   /** Defer rendering until the element is near the viewport; plain text shows until then.
    * `true` uses a 1200px vertical margin; a string is an IntersectionObserver rootMargin. */

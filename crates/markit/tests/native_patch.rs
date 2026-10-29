@@ -63,8 +63,12 @@ fn apply(host: &mut Vec<Value>, bytes: &[u8]) -> usize {
 }
 
 fn check(parts: &[String], label: &str) -> usize {
-    let mut lazy = markit::StreamRenderer::new_native();
-    let mut eager = markit::StreamRenderer::new_native();
+    check_flavor(parts, label, markit::Flavor::Default)
+}
+
+fn check_flavor(parts: &[String], label: &str, flavor: markit::Flavor) -> usize {
+    let mut lazy = markit::StreamRenderer::new_native().with_flavor(flavor);
+    let mut eager = markit::StreamRenderer::new_native().with_flavor(flavor);
     let mut host = Vec::new();
     let mut expected: Vec<Value> = Vec::new();
     let mut extensions = 0;
@@ -98,6 +102,28 @@ fn v2_patches_rebuild_json_documents_for_stream_fixtures() {
     for (i, parts) in sequences::sequences().into_iter().enumerate() {
         check(&parts, &format!("sequence {i}"));
     }
+}
+
+#[test]
+fn github_flavour_patches_rebuild_json_documents_with_their_new_spans() {
+    let source = concat!(
+        "> [!TIP]\n> Use @octocat's fix a1b2c3d :tada:\n\n",
+        "- [ ] one[^1]\n- [x] two\n\n",
+        "<details>\n<summary>Logs</summary>\n\n```rust\nfn main() {}\n```\n\n</details>\n\n",
+        "```mermaid\ngraph TD; A-->B\n```\n\n",
+        "```rust\nlet open = 1;\nlet more = 2;\nlet again = 3;\nlet last = 4;\n",
+    );
+    let with_note = format!("{source}```\n\n[^1]: The note.\n");
+    for text in [source, with_note.as_str()] {
+        check_flavor(&lines(text), "github by line", markit::Flavor::Github);
+        check_flavor(
+            &chunks(text, 3),
+            "github by 3 chars",
+            markit::Flavor::Github,
+        );
+    }
+    // An open fence outside footnotes still extends instead of resending.
+    assert!(check_flavor(&lines(source), "github fence", markit::Flavor::Github) > 0);
 }
 
 #[test]
