@@ -47,7 +47,25 @@ pub extern "system" fn Java_dev_markit_Markit_nativeRender(
     source: JString,
     format: jint,
 ) -> jstring {
-    invoke(&mut env, |env| {
+    render(&mut env, source, format, 0)
+}
+/// `flavor`: 0 default, 1 GitHub. Applies to format 0 (code requests ignore it).
+#[no_mangle]
+pub extern "system" fn Java_dev_markit_Markit_nativeRenderFlavor(
+    mut env: JNIEnv,
+    _: JClass,
+    source: JString,
+    format: jint,
+    flavor: jint,
+) -> jstring {
+    render(&mut env, source, format, flavor)
+}
+fn render(env: &mut JNIEnv, source: JString, format: jint, flavor: jint) -> jstring {
+    invoke(env, |env| {
+        let flavor = u32::try_from(flavor)
+            .ok()
+            .and_then(markit::Flavor::from_code)
+            .ok_or("Unknown flavor")?;
         let source: String = env.get_string(&source).map_err(|e| e.to_string())?.into();
         if source.len() > 16 * 1024 * 1024 {
             return Err("Document exceeds 16 MiB".into());
@@ -68,7 +86,7 @@ pub extern "system" fn Java_dev_markit_Markit_nativeRender(
                 return Ok(markit::code_document_json(source, language));
             }
         } else if format == 0 {
-            markit::parse(&source)
+            markit::parse_with(&source, flavor)
         } else {
             return Err("Unknown format".into());
         };
@@ -80,6 +98,25 @@ pub extern "system" fn Java_dev_markit_Markit_nativeCreateStream(
     mut env: JNIEnv,
     _: JClass,
 ) -> jlong {
+    create_stream(&mut env, 0)
+}
+/// `flavor`: 0 default, 1 GitHub.
+#[no_mangle]
+pub extern "system" fn Java_dev_markit_Markit_nativeCreateStreamFlavor(
+    mut env: JNIEnv,
+    _: JClass,
+    flavor: jint,
+) -> jlong {
+    create_stream(&mut env, flavor)
+}
+fn create_stream(env: &mut JNIEnv, flavor: jint) -> jlong {
+    let Some(flavor) = u32::try_from(flavor)
+        .ok()
+        .and_then(markit::Flavor::from_code)
+    else {
+        let _ = env.throw_new("java/lang/IllegalArgumentException", "Unknown flavor");
+        return 0;
+    };
     let Ok(mut registry) = streams().lock() else {
         let _ = env.throw_new(
             "java/lang/IllegalStateException",
@@ -97,7 +134,9 @@ pub extern "system" fn Java_dev_markit_Markit_nativeCreateStream(
     let id = NEXT.fetch_add(1, Ordering::Relaxed);
     registry.insert(
         id,
-        Arc::new(Mutex::new(markit::StreamRenderer::new_native())),
+        Arc::new(Mutex::new(
+            markit::StreamRenderer::new_native().with_flavor(flavor),
+        )),
     );
     id
 }

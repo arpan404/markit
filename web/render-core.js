@@ -76,7 +76,7 @@ const resync = () => Object.assign(new Error('Markit stream out of sync'), { cod
  * `handle` answers one request: `{ result, transfers }`, or undefined for a release.
  */
 export function createMarkitCore(wasm) {
-  /** stream id -> { stream, previous } */
+  /** stream id -> { stream, previous, flavor } */
   const streams = new Map();
   const release = id => {
     streams.get(id)?.stream.free();
@@ -88,8 +88,14 @@ export function createMarkitCore(wasm) {
       // An append continues the source this stream last rendered.
       if (!entry || typeof data.append !== 'string') throw resync();
     } else if (typeof data.source !== 'string') throw new Error('Invalid or oversized document');
+    const flavor = data.flavor ?? 'default';
+    if (entry && entry.flavor !== flavor) {
+      // A stream renders one flavour; another starts it over from the full source.
+      release(data.stream); entry = undefined;
+      if (data.append !== undefined) throw resync();
+    }
     if (!entry) {
-      entry = { stream: wasm.MarkdownStream.web(), previous: '' };
+      entry = { stream: flavor === 'default' ? wasm.MarkdownStream.web() : wasm.MarkdownStream.webFlavor(flavor), previous: '', flavor };
       streams.set(data.stream, entry);
     }
     let delta;

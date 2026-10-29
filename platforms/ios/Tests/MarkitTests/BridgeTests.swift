@@ -30,4 +30,19 @@ final class BridgeTests: XCTestCase {
         XCTAssertTrue(documents[0].spans.contains { $0.url == "https://example.com" })
         XCTAssertEqual(documents.map(\.text).joined(), "docs\nOpen tail continues\n")
     }
+    func testGithubFlavourCarriesTasksAlertsAndReferencesThroughParseAndStreams() throws {
+        let source = "> [!NOTE]\n> Hi @octocat\n\n- [ ] todo\n"
+        let document = try Markit.parse(source, flavor: .github)
+        XCTAssertTrue(document.spans.contains { $0.kind == "alert" && $0.alert == "note" })
+        XCTAssertTrue(document.spans.contains { $0.kind == "reference" && $0.reference_kind == "mention" && $0.target == "octocat" })
+        let task = try XCTUnwrap(document.spans.first { $0.kind == "task" })
+        let offset = try XCTUnwrap(task.offset)
+        XCTAssertEqual((source as NSString).substring(with: NSRange(location: offset - 1, length: 3)), "[ ]")
+        XCTAssertFalse(try Markit.parse(source).spans.contains { $0.kind == "alert" })
+        let stream = MarkitStream(flavor: .github)
+        let patch = try stream.append(source, finalized: true)
+        let spans = patch.blocks.flatMap { $0.document.spans }
+        XCTAssertTrue(spans.contains { $0.kind == "task" && $0.offset == offset && $0.checked == false })
+        XCTAssertTrue(spans.contains { $0.kind == "alert" && $0.alert == "note" })
+    }
 }

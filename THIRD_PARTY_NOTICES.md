@@ -1,6 +1,8 @@
 # Third-party notices
 
-Markit uses pulldown-cmark for CommonMark parsing, linkify for bare URLs, and LaTeX-Rust for mathematical layout and rendering. Rust dependency versions and checksums are recorded in Cargo.lock. Their upstream copyright and license notices remain applicable.
+Markit uses pulldown-cmark for CommonMark parsing, linkify for bare URLs, and LaTeX-Rust for mathematical layout and rendering.
+
+The GitHub flavour's emoji shortcode table (`crates/markit/src/github/emoji_table.rs`) is generated from GitHub's gemoji list (MIT, Copyright (c) 2019 GitHub, Inc.) and Unicode emoji data (Unicode License v3) as published by the emojis crate; those license files are in `licenses/dependencies/emojis-0.9.1`. Rust dependency versions and checksums are recorded in Cargo.lock. Their upstream copyright and license notices remain applicable.
 
 The default math renderer embeds STIX Two Math 2.13 under the SIL Open Font License 1.1. LaTeX-Rust's modified dvips color table uses the LaTeX Project Public License. The original notice, font license, modified table with its original header, and Rust-source licenses are included in `licenses/`. See `LaTeX-Rust-NOTICE.txt` for the upstream graphics bundle source and modification details.
 

@@ -65,21 +65,59 @@ pub(crate) fn render_html_with_refs(
     render_html_code(source, output, references, &mut render_code);
 }
 
+/// Renders one fenced or indented code block's HTML.
+pub(crate) type CodeRenderer<'r> = dyn FnMut(&str, &crate::FenceInfo) -> String + 'r;
+
 pub(crate) fn render_html_code(
     source: &str,
     output: &mut String,
     references: &crate::References,
-    code_renderer: &mut impl FnMut(&str, &crate::FenceInfo) -> String,
+    code_renderer: &mut CodeRenderer<'_>,
 ) {
     output.clear();
     output.reserve(source.len());
     let prepared = crate::math::prepare(source);
-    let mut input = super::parser_with_refs(&prepared.source, references)
+    push_events(
+        &prepared,
+        super::parser_with_refs(&prepared.source, references),
+        output,
+        code_renderer,
+        false,
+    );
+}
+
+pub(crate) fn render_events(
+    prepared: &crate::math::Prepared<'_>,
+    events: Vec<Event<'_>>,
+    output: &mut String,
+) {
+    output.clear();
+    push_events(
+        prepared,
+        events.into_iter(),
+        output,
+        &mut render_code,
+        false,
+    );
+}
+
+/// The one HTML stage behind every renderer. Raw HTML is escaped unless
+/// `trusted_html` is set, which only the GitHub flavour does after its
+/// allowlist has rebuilt every tag (see `github::html`).
+pub(crate) fn push_events<'a>(
+    prepared: &crate::math::Prepared<'_>,
+    events: impl Iterator<Item = Event<'a>>,
+    output: &mut String,
+    code_renderer: &mut CodeRenderer<'_>,
+    trusted_html: bool,
+) {
+    let mut input = events
         .filter(|event| !matches!(event, Event::InlineHtml(text) if prepared.is_separator(text)));
     let mut link_depth = 0usize;
     let events = std::iter::from_fn(|| {
         let event = input.next()?;
         Some(match event {
+            Event::Html(text) | Event::InlineHtml(text) if trusted_html => Event::Html(text),
             Event::Html(text) | Event::InlineHtml(text) => Event::Text(text),
             Event::Start(Tag::CodeBlock(kind)) => {
                 let info = match kind {
@@ -178,17 +216,7 @@ pub(crate) fn render_html_code(
                     Event::Text(text)
                 } else {
                     let mut html = String::new();
-                    let mut at = 0;
-                    for (range, url) in links {
-                        html.push_str(&escape(&text[at..range.start]));
-                        html.push_str(&format!(
-                            "<a href=\"{}\">{}</a>",
-                            escape(&url),
-                            escape(&text[range.clone()])
-                        ));
-                        at = range.end;
-                    }
-                    html.push_str(&escape(&text[at..]));
+                    push_linked_text(&text, &links, &mut html);
                     Event::Html(html.into())
                 }
             }
@@ -198,134 +226,23 @@ pub(crate) fn render_html_code(
     html::push_html(output, events);
 }
 
-pub(crate) fn render_events<'a>(
-    prepared: &crate::math::Prepared<'_>,
-    events: impl Iterator<Item = Event<'a>>,
-    output: &mut String,
+/// `text` escaped, with each bare link from [`bare_links`] as an anchor.
+pub(crate) fn push_linked_text(
+    text: &str,
+    links: &[(std::ops::Range<usize>, String)],
+    html: &mut String,
 ) {
-    output.clear();
-    let mut input = events
-        .filter(|event| !matches!(event, Event::InlineHtml(text) if prepared.is_separator(text)));
-    let mut link_depth = 0usize;
-    let events = std::iter::from_fn(|| {
-        let event = input.next()?;
-        Some(match event {
-            Event::Html(text) | Event::InlineHtml(text) => Event::Text(text),
-            Event::Start(Tag::CodeBlock(kind)) => {
-                let info = match kind {
-                    CodeBlockKind::Fenced(info) => crate::fence_info(&info),
-                    CodeBlockKind::Indented => crate::FenceInfo::default(),
-                };
-                let mut code = String::new();
-                for event in input.by_ref() {
-                    match event {
-                        Event::End(pulldown_cmark::TagEnd::CodeBlock) => break,
-                        Event::Text(text) => code.push_str(&text),
-                        _ => {}
-                    }
-                }
-                Event::Html(render_code(&code, &info).into())
-            }
-            Event::Code(code) => {
-                if let Some(formula) = prepared.formula(&code) {
-                    if let Some(visual) = crate::math::render_svg(&formula.tex, formula.display) {
-                        Event::Html(format!("<span class=\"mk-math{}\" role=\"math\" aria-label=\"{}\" data-tex=\"{}\">{}</span>",
-                            if formula.display { " mk-display" } else { "" }, escape(&formula.tex), escape(&formula.raw), visual.svg).into())
-                    } else {
-                        Event::Text(formula.raw.clone().into())
-                    }
-                } else if let Some(reference) = crate::reference::inline_file(&code) {
-                    Event::Html(format!("<code role=\"link\" tabindex=\"0\" data-markit-reference=\"{}\" data-reference-kind=\"file\">{}</code>", escape(&reference.target), escape(&code)).into())
-                } else {
-                    Event::Code(code)
-                }
-            }
-            Event::Start(Tag::Image { dest_url, .. }) => {
-                let mut alt = String::new();
-                let mut depth = 1;
-                for event in input.by_ref() {
-                    match event {
-                        Event::Start(Tag::Image { .. }) => depth += 1,
-                        Event::End(pulldown_cmark::TagEnd::Image) => {
-                            depth -= 1;
-                            if depth == 0 {
-                                break;
-                            }
-                        }
-                        Event::Text(text) | Event::Code(text) => alt.push_str(&text),
-                        Event::SoftBreak | Event::HardBreak => alt.push(' '),
-                        _ => {}
-                    }
-                }
-                let url = if crate::is_safe_url(&dest_url) {
-                    dest_url.trim()
-                } else {
-                    ""
-                };
-                Event::Html(
-                    format!(
-                        "<img data-markit-src=\"{}\" alt=\"{}\" loading=\"lazy\">",
-                        escape(url),
-                        escape(&alt)
-                    )
-                    .into(),
-                )
-            }
-            Event::Start(Tag::Link {
-                link_type,
-                dest_url,
-                title,
-                id,
-            }) => {
-                link_depth += 1;
-                if let Some(reference) = crate::reference_target(&dest_url) {
-                    let href = if crate::is_safe_url(&dest_url) {
-                        format!(" href=\"{}\"", escape(&dest_url))
-                    } else {
-                        String::new()
-                    };
-                    return Some(Event::Html(format!("<a{href} role=\"link\" tabindex=\"0\" data-markit-reference=\"{}\" data-reference-kind=\"{}\">", escape(&reference.target), escape(&reference.kind)).into()));
-                }
-                let dest_url = if super::is_safe_url(&dest_url) {
-                    CowStr::from(dest_url.trim().to_owned())
-                } else {
-                    CowStr::Borrowed("")
-                };
-                Event::Start(Tag::Link {
-                    link_type,
-                    dest_url,
-                    title,
-                    id,
-                })
-            }
-            Event::End(pulldown_cmark::TagEnd::Link) => {
-                link_depth = link_depth.saturating_sub(1);
-                Event::End(pulldown_cmark::TagEnd::Link)
-            }
-            Event::Text(text) if link_depth == 0 => {
-                let links = bare_links(&text);
-                if links.is_empty() {
-                    Event::Text(text)
-                } else {
-                    let mut html = String::new();
-                    let mut at = 0;
-                    for (range, url) in links {
-                        html.push_str(&escape(&text[at..range.start]));
-                        html.push_str(&format!(
-                            "<a href=\"{}\">{}</a>",
-                            escape(&url),
-                            escape(&text[range.clone()])
-                        ));
-                        at = range.end;
-                    }
-                    html.push_str(&escape(&text[at..]));
-                    Event::Html(html.into())
-                }
-            }
-            other => other,
-        })
-    });
-    html::push_html(output, events);
+    let mut at = 0;
+    for (range, url) in links {
+        escape_into(&text[at..range.start], html);
+        html.push_str("<a href=\"");
+        escape_into(url, html);
+        html.push_str("\">");
+        escape_into(&text[range.clone()], html);
+        html.push_str("</a>");
+        at = range.end;
+    }
+    escape_into(&text[at..], html);
 }
 
 pub(crate) fn diff_kind(part: &str) -> &'static str {
@@ -572,7 +489,7 @@ fn write_runs(
     }
 }
 
-fn render_code(code: &str, info: &crate::FenceInfo) -> String {
+pub(crate) fn render_code(code: &str, info: &crate::FenceInfo) -> String {
     let runs = crate::highlight::lex_runs(code, &info.language);
     CodeHtml::new(info).render(code, info, &runs)
 }

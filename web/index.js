@@ -4,6 +4,7 @@ import { CodeView } from './code-view.js';
 import { morphChildren } from './dom-morph.js';
 import { engineFor } from './engine.js';
 import { scheduleFrame } from './frame.js';
+import { GithubFeatures } from './github.js';
 export { preloadMarkit, terminateMarkitWorkers } from './engine.js';
 
 const SECTIONS = 'section[data-markit-code]';
@@ -21,7 +22,7 @@ export class MarkitRenderer {
   #ready = []; #cancelFrame;
   #payloads = new WeakMap(); #views = new WeakMap();
   #urls = new Map(); #imageJobs = new Map(); #listeners;
-  #gpu = new GpuCodeRenderer();
+  #gpu = new GpuCodeRenderer(); #github;
   constructor(element, options = {}) {
     this.#element = element;
     this.#options = options;
@@ -32,11 +33,13 @@ export class MarkitRenderer {
     this.#listeners = new (element.ownerDocument.defaultView?.AbortController ?? AbortController)();
     this.#engine = engineFor(options);
     this.#stream = this.#engine.stream();
+    this.#github = new GithubFeatures(element, options);
     const signal = this.#listeners.signal;
     element.addEventListener('click', event => this.#activate(event), { signal });
     element.addEventListener('keydown', event => {
-      if (event.key === 'Enter' && event.target.closest('[data-markit-reference]')) this.#activate(event);
+      if (event.key === 'Enter' && event.target.closest('[data-markit-reference],[data-markit-footnote],[data-markit-footnote-back]')) this.#activate(event);
     }, { signal });
+    element.addEventListener('change', event => this.#github.change(event), { signal });
     element.addEventListener('copy', event => {
       const selection = element.ownerDocument.getSelection();
       if (!selection?.rangeCount) return;
@@ -61,6 +64,7 @@ export class MarkitRenderer {
       const fields = sent !== undefined && source.startsWith(sent)
         ? { stream: this.#stream, append: source.slice(sent.length), finalized }
         : { stream: this.#stream, source, finalized };
+      if (this.#options.flavor) fields.flavor = this.#options.flavor;
       this.#sent = source;
       try { return await this.#rpc('render', fields); }
       catch (error) {
@@ -170,19 +174,21 @@ export class MarkitRenderer {
     if (live.dataset.markitCode !== index) live.dataset.markitCode = index;
     return true;
   }
-  /** Builds code views and requests images inside newly inserted nodes. */
+  /** Builds code views, GitHub features and image requests inside newly inserted nodes. */
   #hydrate(node) {
     if (node.nodeType !== 1) return;
     const payload = this.#payloads.get(node.closest('.mk-block'));
     for (const section of within(node, SECTIONS)) {
       this.#views.set(section, new CodeView(section, payload?.codes?.[Number(section.dataset.markitCode)], this.#codeOptions));
     }
+    this.#github.mount(node);
     if (!this.#options.resolveImage) return;
     for (const image of within(node, 'img[data-markit-src]')) if (!image.dataset.requested) this.#resolveImage(image);
   }
-  /** Frees what a removed node owns: code views (and their GPU views), image jobs and object URLs. */
+  /** Frees what a removed node owns: code views (and their GPU views), image, media and diagram jobs, and object URLs. */
   #release(node) {
     if (node.nodeType !== 1) return;
+    this.#github.release(node);
     for (const section of within(node, SECTIONS)) { this.#views.get(section)?.destroy(); this.#views.delete(section); }
     for (const image of within(node, 'img')) {
       this.#imageJobs.get(image)?.abort(); this.#imageJobs.delete(image);
@@ -215,6 +221,7 @@ export class MarkitRenderer {
       } catch (error) { this.#options.onError?.(error); }
       return;
     }
+    if (this.#github.activate(event)) return;
     const reference = event.target.closest('[data-markit-reference]');
     if (reference) {
       if (this.#options.onReference) {
@@ -235,7 +242,7 @@ export class MarkitRenderer {
     for (const { job } of this.#ready) job.reject(new Error('Renderer disposed'));
     this.#ready = [];
     this.#release(this.#element);
-    this.#gpu.destroy();
+    this.#gpu.destroy(); this.#github.destroy();
     this.#queued?.reject(new Error('Renderer disposed')); this.#queued = undefined;
     for (const job of this.#imageJobs.values()) job.abort(); this.#imageJobs.clear();
     for (const url of this.#urls.values()) URL.revokeObjectURL(url); this.#urls.clear();

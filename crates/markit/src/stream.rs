@@ -56,6 +56,15 @@ pub struct StreamRenderer {
     /// The last block is an open fence whose document was sent as an MKNP v2
     /// extension and not rebuilt. It is rebuilt before any other update.
     stale_fence: bool,
+    flavor: crate::Flavor,
+    /// GitHub flavour: the text defines a footnote, so later text can
+    /// renumber or link older blocks. Nothing settles while it does.
+    footnotes: bool,
+    /// GitHub flavour: task boxes in settled blocks.
+    settled_tasks: usize,
+    /// GitHub flavour: source byte offset and first task index of each block,
+    /// which a reused block must also match.
+    block_keys: Vec<(usize, usize)>,
 }
 
 /// Result of an append whose open-fence change was not materialized.
@@ -63,7 +72,7 @@ enum Appended {
     Patch(RenderPatch),
     Fence {
         index: usize,
-        change: crate::document::FenceChange,
+        change: crate::fence_doc::FenceChange,
         finalized: bool,
         source_bytes: usize,
         parsed_bytes: usize,
@@ -93,11 +102,28 @@ impl StreamRenderer {
             ..Self::default()
         }
     }
+    /// Render in `flavor` from the next update on. Resets the stream when
+    /// the flavour changes.
+    pub fn with_flavor(mut self, flavor: crate::Flavor) -> Self {
+        self.set_flavor(flavor);
+        self
+    }
+    /// See [`with_flavor`](Self::with_flavor).
+    pub fn set_flavor(&mut self, flavor: crate::Flavor) {
+        if flavor != self.flavor {
+            self.flavor = flavor;
+            self.reset();
+        }
+    }
+    pub fn flavor(&self) -> crate::Flavor {
+        self.flavor
+    }
     pub fn reset(&mut self) {
         *self = Self {
             html_only: self.html_only,
             web: self.web,
             native_only: self.native_only,
+            flavor: self.flavor,
             ..Self::default()
         };
     }
@@ -161,13 +187,13 @@ impl StreamRenderer {
             if lazy && fence.continue_source(&self.source) {
                 let fresh = fence.fresh;
                 let mut change = fence.native_change(&self.source);
-                if let crate::document::FenceChange::Replace(document) = &change {
+                if let crate::fence_doc::FenceChange::Replace(document) = &change {
                     // The parser already sent this fence; skip an identical copy.
                     if fresh
                         && self.blocks.last().and_then(|block| block.document.as_ref())
                             == Some(document)
                     {
-                        change = crate::document::FenceChange::Unchanged;
+                        change = crate::fence_doc::FenceChange::Unchanged;
                     }
                 }
                 let index = self.blocks.len() - 1;
@@ -214,21 +240,31 @@ impl StreamRenderer {
                 });
             }
         }
+        let github = self.flavor.is_github();
+        if github
+            && self.settled > 0
+            && (self.footnotes || crate::github::may_define(&self.source[self.settled..]))
+        {
+            self.settled = 0;
+            self.settled_count = 0;
+            self.settled_tasks = 0;
+        }
         let mut prepared = crate::math::prepare(&self.source[self.settled..]);
         // The parser owns block discovery and definition discovery together.
         // Its fallback only needs older definitions: new ones resolve in-parser.
         let previous_references = self.references.clone();
-        let mut parser = crate::parser_with_refs(&prepared.source, &previous_references);
+        let mut parser = crate::parser_for(&prepared.source, &previous_references, self.flavor);
         let mut references_changed = false;
         if parser.reference_definitions().iter().next().is_some() {
             references_changed = true;
             if self.settled > 0 {
                 drop(parser);
                 prepared = crate::math::prepare(&self.source);
-                parser = crate::parser_with_refs(&prepared.source, &previous_references);
+                parser = crate::parser_for(&prepared.source, &previous_references, self.flavor);
             }
             self.settled = 0;
             self.settled_count = 0;
+            self.settled_tasks = 0;
             self.references.clear();
             for (label, definition) in parser.reference_definitions().iter() {
                 self.references
@@ -248,7 +284,12 @@ impl StreamRenderer {
         let mut start = 0;
         let mut block_events = Vec::new();
         let mut events = Vec::new();
+        // GitHub flavour: each event's source range, for task offsets.
+        let mut block_spans = Vec::new();
+        let mut spans = Vec::new();
         for (event, range) in parser.into_offset_iter() {
+            let range = prepared.original_offset(range.start, false)
+                ..prepared.original_offset(range.end, true);
             if depth > 0
                 || matches!(
                     event,
@@ -256,9 +297,10 @@ impl StreamRenderer {
                 )
             {
                 events.push(event.clone());
+                if github {
+                    spans.push(range.clone());
+                }
             }
-            let range = prepared.original_offset(range.start, false)
-                ..prepared.original_offset(range.end, true);
             match event {
                 pulldown_cmark::Event::Start(_) => {
                     if depth == 0 {
@@ -271,16 +313,36 @@ impl StreamRenderer {
                     if depth == 0 {
                         ranges.push(start..range.end);
                         block_events.push(std::mem::take(&mut events));
+                        block_spans.push(std::mem::take(&mut spans));
                     }
                 }
                 pulldown_cmark::Event::Rule if depth == 0 => {
                     ranges.push(range);
                     block_events.push(std::mem::take(&mut events));
+                    block_spans.push(std::mem::take(&mut spans));
                 }
                 _ => {}
             }
         }
-        if prepared.unclosed.is_none() {
+        let plan = github.then(|| {
+            let blocks = std::mem::take(&mut ranges)
+                .into_iter()
+                .zip(std::mem::take(&mut block_events))
+                .zip(block_spans)
+                .map(|((range, events), spans)| (range, events, spans))
+                .collect();
+            let mut plan =
+                crate::github::stream::plan(&self.source, self.settled, blocks, self.settled_tasks);
+            for group in &mut plan.groups {
+                ranges.push(group.range.clone());
+                block_events.push(std::mem::take(&mut group.events));
+            }
+            plan
+        });
+        if let Some(plan) = &plan {
+            self.footnotes = plan.definitions;
+        }
+        if prepared.unclosed.is_none() && !(github && self.footnotes) {
             if let (Some(range), Some(events)) = (ranges.last(), block_events.last()) {
                 if let Some(pulldown_cmark::Event::Start(pulldown_cmark::Tag::CodeBlock(
                     pulldown_cmark::CodeBlockKind::Fenced(info),
@@ -296,21 +358,50 @@ impl StreamRenderer {
         }
         let mut next: Vec<Arc<RenderedBlock>> = Vec::new();
         let mut next_sources: Vec<Arc<str>> = Vec::new();
-        for (range, events) in ranges.iter().zip(block_events) {
+        let mut next_keys: Vec<(usize, usize)> = Vec::new();
+        for (at, (range, events)) in ranges.iter().zip(block_events).enumerate() {
             let source = &tail[range.clone()];
             let index = self.settled_count + next.len();
-            if !references_changed {
+            let group = plan.as_ref().map(|plan| &plan.groups[at]);
+            let key = (
+                self.settled + range.start,
+                group.map_or(0, |group| group.first_task),
+            );
+            // A footnote's number can change with older text.
+            let reusable = !references_changed
+                && group.is_none_or(|group| !(group.references && self.footnotes))
+                && (!github || self.block_keys.get(index) == Some(&key));
+            if reusable {
                 if let (Some(previous), Some(existing)) =
                     (self.block_sources.get(index), self.blocks.get(index))
                 {
                     if previous.as_ref() == source {
                         next.push(existing.clone());
                         next_sources.push(previous.clone());
+                        next_keys.push(key);
                         continue;
                     }
                 }
             }
             next_sources.push(Arc::from(source));
+            next_keys.push(key);
+            if let (Some(plan), Some(group)) = (plan.as_ref(), group) {
+                let block = crate::github::stream::render(
+                    &crate::github::stream::Target {
+                        prepared: &prepared,
+                        source: &self.source,
+                        start: self.settled + range.start,
+                        block: source,
+                        web: self.web,
+                        html: !self.native_only,
+                        native: !self.html_only,
+                    },
+                    &plan.footnotes,
+                    Some((events, group)),
+                );
+                next.push(Arc::new(block));
+                continue;
+            }
             let mut html = String::new();
             let mut codes = Vec::new();
             if self.web {
@@ -329,23 +420,14 @@ impl StreamRenderer {
                         format!("<section class=\"mk-codeblock\" data-markit-code=\"{index}\"></section>\n")
                     },
                 );
-                let block_utf16 =
-                    crate::highlight::utf16_len(&self.source[..self.settled + range.start]);
-                for code in &mut codes {
-                    if code.source.is_empty() {
-                        continue;
-                    }
-                    if let Some(at) = block_source.find(&code.source) {
-                        if at == 0 || block_source.as_bytes()[at - 1] == b'\n' {
-                            let start =
-                                block_utf16 + crate::highlight::utf16_len(&block_source[..at]);
-                            let end = start + crate::highlight::utf16_len(&code.source);
-                            code.utf16 = Some((start as u32, end as u32));
-                        }
-                    }
-                }
+                place_codes(
+                    &self.source,
+                    self.settled + range.start,
+                    block_source,
+                    &mut codes,
+                );
             } else if !self.native_only {
-                crate::html::render_events(&prepared, events.iter().cloned(), &mut html);
+                crate::html::render_events(&prepared, events.clone(), &mut html);
             }
             let document = (!self.html_only)
                 .then(|| crate::document::parse_events(&prepared, events.into_iter()));
@@ -354,6 +436,24 @@ impl StreamRenderer {
                 document,
                 codes,
             }));
+        }
+        if let Some(plan) = plan.as_ref().filter(|plan| !plan.footnotes.is_empty()) {
+            let block = crate::github::stream::render(
+                &crate::github::stream::Target {
+                    prepared: &prepared,
+                    source: &self.source,
+                    start: self.source.len(),
+                    block: "",
+                    web: self.web,
+                    html: !self.native_only,
+                    native: !self.html_only,
+                },
+                &plan.footnotes,
+                None,
+            );
+            next.push(Arc::new(block));
+            next_sources.push(Arc::from(""));
+            next_keys.push((usize::MAX, 0));
         }
         let common = self
             .blocks
@@ -369,6 +469,10 @@ impl StreamRenderer {
         self.block_sources.truncate(replace_from);
         self.block_sources
             .extend(next_sources.into_iter().skip(common));
+        if github {
+            self.block_keys.truncate(replace_from);
+            self.block_keys.extend(next_keys.into_iter().skip(common));
+        }
         let settled = self.settled_count.min(self.block_sources.len());
         for source in &mut self.block_sources[..settled] {
             if !source.is_empty() {
@@ -394,9 +498,15 @@ impl StreamRenderer {
                     .is_none_or(|unclosed| range.end <= unclosed)
             })
             .count();
-        if stable > 0 {
+        if stable > 0 && !(github && self.footnotes) {
             self.settled += ranges[stable - 1].end;
             self.settled_count += stable;
+            if let Some(plan) = &plan {
+                self.settled_tasks += plan.groups[..stable]
+                    .iter()
+                    .map(|group| group.tasks)
+                    .sum::<usize>();
+            }
         }
         Appended::Patch(RenderPatch {
             replace_from,
@@ -405,5 +515,26 @@ impl StreamRenderer {
             source_bytes: self.source.len(),
             parsed_bytes,
         })
+    }
+}
+
+/// Give each web code payload the UTF-16 range of its body in the stream's
+/// Markdown when the body is an exact slice of the block at `start`.
+pub(crate) fn place_codes(markdown: &str, start: usize, block_source: &str, codes: &mut [WebCode]) {
+    if codes.is_empty() {
+        return;
+    }
+    let block_utf16 = crate::highlight::utf16_len(&markdown[..start]);
+    for code in codes {
+        if code.source.is_empty() {
+            continue;
+        }
+        if let Some(at) = block_source.find(&code.source) {
+            if at == 0 || block_source.as_bytes()[at - 1] == b'\n' {
+                let start = block_utf16 + crate::highlight::utf16_len(&block_source[..at]);
+                let end = start + crate::highlight::utf16_len(&code.source);
+                code.utf16 = Some((start as u32, end as u32));
+            }
+        }
     }
 }

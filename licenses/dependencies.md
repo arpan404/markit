@@ -19,6 +19,7 @@ Versions are pinned in Cargo.lock. License files below are unmodified copies fro
 - cfg-if-1.0.5: MIT OR Apache-2.0. https://github.com/rust-lang/cfg-if
 - combine-4.6.9: MIT. https://github.com/Marwes/combine
 - crc32fast-1.5.3: MIT OR Apache-2.0. https://github.com/srijs/rust-crc32fast
+- emojis-0.9.1 (data only, generated into src/github/emoji_table.rs; not linked): (MIT OR Apache-2.0) AND Unicode-3.0. https://github.com/rossmacarthur/emojis
 - fancy-regex-0.16.2: MIT. https://github.com/fancy-regex/fancy-regex
 - fdeflate-0.3.7: MIT OR Apache-2.0. https://github.com/image-rs/fdeflate
 - flate2-1.1.10: MIT OR Apache-2.0. https://github.com/rust-lang/flate2-rs

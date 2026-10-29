@@ -2,7 +2,7 @@ import { createElement, forwardRef, memo, useEffect, useImperativeHandle, useRef
 import { MarkitRenderer } from './index.js';
 export { preloadMarkit } from './index.js';
 
-const OPTIONS = ['onLink', 'onReference', 'resolveImage', 'onError'];
+const OPTIONS = ['onLink', 'onReference', 'resolveImage', 'resolveMedia', 'renderDiagram', 'onTask', 'onError'];
 
 /** Owns one renderer for one element. Text updates go straight to the renderer,
  * never through React state, and survive StrictMode's detach/re-attach. */
@@ -20,8 +20,8 @@ class MarkitController {
     if (this.#element === element) return;
     this.#detach();
     this.#element = element;
-    const { workerURL, worker, wasm, codeRendering, code, lazy } = this.#latest.current;
-    const options = { workerURL, worker, wasm, codeRendering, code };
+    const { workerURL, worker, wasm, codeRendering, code, flavor, lazy } = this.#latest.current;
+    const options = { workerURL, worker, wasm, codeRendering, code, flavor };
     // Callbacks are read when used, so new closures never recreate the renderer.
     for (const name of OPTIONS) Object.defineProperty(options, name, { enumerable: true, get: () => this.#latest.current[name] });
     this.#renderer = new MarkitRenderer(element, options);
@@ -91,9 +91,10 @@ export function useMarkit(options = {}) {
 /** Renders `markdown` into a div. Re-rendering with longer text streams it;
  * `finalized={false}` keeps the last block open. */
 export const Markit = memo(forwardRef(function Markit(props, ref) {
-  const { markdown = '', finalized = true, lazy, workerURL, worker, wasm, codeRendering, code,
-    onLink, onReference, resolveImage, onError, onRender, as = 'div', ...rest } = props;
-  const markit = useMarkit({ lazy, workerURL, worker, wasm, codeRendering, code, onLink, onReference, resolveImage, onError, onRender });
+  const { markdown = '', finalized = true, lazy, workerURL, worker, wasm, codeRendering, code, flavor,
+    onLink, onReference, resolveImage, resolveMedia, renderDiagram, onTask, onError, onRender, as = 'div', ...rest } = props;
+  const markit = useMarkit({ lazy, workerURL, worker, wasm, codeRendering, code, flavor,
+    onLink, onReference, resolveImage, resolveMedia, renderDiagram, onTask, onError, onRender });
   useImperativeHandle(ref, () => markit, [markit]);
   useEffect(() => { markit.render(markdown, { finalized }); }, [markit, markdown, finalized]);
   return createElement(as, { ...rest, ref: markit.ref });

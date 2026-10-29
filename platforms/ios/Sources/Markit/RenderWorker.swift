@@ -8,9 +8,16 @@ final class RenderWorker: @unchecked Sendable {
     private let queue = DispatchQueue(label: "dev.markit.render", qos: .userInitiated)
     private var pending: Job?
     private var running = false
-    private var stream = MarkitStream()
+    /// The dialect of every render. Changing it starts the stream over.
+    let flavor: MarkitFlavor
+    private var stream: MarkitStream
     private var previous = ""
     private var documents: [MarkitDocument] = []
+
+    init(flavor: MarkitFlavor = .standard) {
+        self.flavor = flavor
+        stream = MarkitStream(flavor: flavor)
+    }
 
     func submit(_ source: String, finalized: Bool, completion: @escaping @Sendable (Result<Output, Error>) -> Void) {
         lock.lock()
@@ -27,7 +34,7 @@ final class RenderWorker: @unchecked Sendable {
             pending = nil
             lock.unlock()
             do {
-                if !job.source.hasPrefix(previous) { stream = MarkitStream(); previous = ""; documents = [] }
+                if !job.source.hasPrefix(previous) { stream = MarkitStream(flavor: flavor); previous = ""; documents = [] }
                 // UTF-8 prefix removal preserves Unicode scalar boundaries.
                 let delta = String(decoding: job.source.utf8.dropFirst(previous.utf8.count), as: UTF8.self)
                 let patch = try stream.append(delta, finalized: job.finalized)
@@ -35,7 +42,7 @@ final class RenderWorker: @unchecked Sendable {
                 documents.append(contentsOf: patch.blocks.map(\.document))
                 previous = job.source
                 job.completion(.success(Output(documents: documents, changedFrom: patch.replace_from)))
-            } catch { stream = MarkitStream(); previous = ""; documents = []; job.completion(.failure(error)) }
+            } catch { stream = MarkitStream(flavor: flavor); previous = ""; documents = []; job.completion(.failure(error)) }
         }
     }
 }

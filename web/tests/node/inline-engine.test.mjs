@@ -62,3 +62,20 @@ test('destroying an inline renderer rejects its pending work', async () => {
   await assert.rejects(pending, /Renderer disposed/);
   await assert.rejects(renderer.render('x'), /Renderer disposed/);
 });
+
+test('the inline engine renders the GitHub flavour and reports ticked task boxes', async () => {
+  const tasks = [];
+  const { element, renderer } = mount({ flavor: 'github', onTask: task => tasks.push(task) });
+  const source = '> [!WARNING]\n> Careful.\n\n- [ ] ship it\n';
+  await renderer.render(source);
+  assert.equal(element.querySelector('.mk-alert-title').textContent, 'Warning');
+  const box = element.querySelector('input[data-markit-task]');
+  assert.equal(box.disabled, false);
+  box.checked = true;
+  box.dispatchEvent(new element.ownerDocument.defaultView.Event('change', { bubbles: true }));
+  assert.deepEqual(tasks, [{ index: 0, offset: source.indexOf('[ ]') + 1, checked: true }]);
+  const plain = mount();
+  await plain.renderer.render(source);
+  assert.equal(plain.element.querySelector('.mk-alert'), null);
+  renderer.destroy(); plain.renderer.destroy();
+});

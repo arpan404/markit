@@ -66,8 +66,25 @@ fn binary_result(result: Result<Vec<u8>, markit::BinaryError>) -> MarkitBuffer {
 /// Source must be readable for len bytes, as for markit_render. Free with markit_buffer_free.
 #[no_mangle]
 pub unsafe extern "C" fn markit_render_binary(source: *const u8, len: usize) -> MarkitBuffer {
+    unsafe { markit_render_binary_flavor(source, len, 0) }
+}
+
+/// [`markit_render_binary`] in a flavour: 0 default, 1 GitHub. Unknown
+/// flavours return status 2.
+///
+/// # Safety
+/// Same requirements as [`markit_render_binary`].
+#[no_mangle]
+pub unsafe extern "C" fn markit_render_binary_flavor(
+    source: *const u8,
+    len: usize,
+    flavor: u32,
+) -> MarkitBuffer {
+    let Some(flavor) = markit::Flavor::from_code(flavor) else {
+        return MarkitBuffer::error(2);
+    };
     catch_unwind(|| match unsafe { input(source, len) } {
-        Ok(source) => binary_result(markit::render_document_binary(source)),
+        Ok(source) => binary_result(markit::render_document_binary_with(source, flavor)),
         Err(status) => MarkitBuffer::error(status),
     })
     .unwrap_or_else(|_| MarkitBuffer::error(3))
@@ -111,6 +128,25 @@ pub unsafe extern "C" fn markit_code_binary(request: *const MarkitCodeRequest) -
 /// this call. len must not exceed isize::MAX. No pointer is retained.
 #[no_mangle]
 pub unsafe extern "C" fn markit_render(source: *const u8, len: usize, format: u32) -> MarkitBuffer {
+    unsafe { markit_render_flavor(source, len, format, 0) }
+}
+
+/// [`markit_render`] in a flavour: 0 default, 1 GitHub. The flavour applies
+/// to formats 0 and 1; code requests ignore it. Unknown flavours return
+/// status 2.
+///
+/// # Safety
+/// Same requirements as [`markit_render`].
+#[no_mangle]
+pub unsafe extern "C" fn markit_render_flavor(
+    source: *const u8,
+    len: usize,
+    format: u32,
+    flavor: u32,
+) -> MarkitBuffer {
+    let Some(flavor) = markit::Flavor::from_code(flavor) else {
+        return MarkitBuffer::error(2);
+    };
     if (source.is_null() && len != 0) || len > isize::MAX as usize || format > 3 {
         return MarkitBuffer::error(2);
     }
@@ -144,9 +180,9 @@ pub unsafe extern "C" fn markit_render(source: *const u8, len: usize, format: u3
                 markit::code_document_json(source, language)
             }
         } else if format == 0 {
-            markit::render_document_json(text)
+            markit::render_document_json_with(text, flavor)
         } else {
-            markit::render_html(text)
+            markit::render_html_with(text, flavor)
         })
     })
     .unwrap_or_else(|_| MarkitBuffer::error(3))
@@ -154,7 +190,19 @@ pub unsafe extern "C" fn markit_render(source: *const u8, len: usize, format: u3
 
 #[no_mangle]
 pub extern "C" fn markit_stream_new() -> *mut markit::StreamRenderer {
-    Box::into_raw(Box::new(markit::StreamRenderer::new_native()))
+    markit_stream_new_flavor(0)
+}
+
+/// A native stream in a flavour: 0 default, 1 GitHub. Null for an unknown
+/// flavour. Free with markit_stream_free.
+#[no_mangle]
+pub extern "C" fn markit_stream_new_flavor(flavor: u32) -> *mut markit::StreamRenderer {
+    match markit::Flavor::from_code(flavor) {
+        Some(flavor) => Box::into_raw(Box::new(
+            markit::StreamRenderer::new_native().with_flavor(flavor),
+        )),
+        None => ptr::null_mut(),
+    }
 }
 
 /// # Safety
@@ -389,6 +437,40 @@ mod tests {
         }
         let error = unsafe { markit_stream_append(ptr::null_mut(), ptr::null(), 0, 1) };
         assert_eq!(error.status, 2);
+    }
+
+    #[test]
+    fn github_flavour_reaches_renders_binary_plans_and_streams() {
+        let source = "<kbd>K</kbd> @octocat\n";
+        let read = |buffer: MarkitBuffer| {
+            assert_eq!(buffer.status, 0);
+            let bytes = unsafe { slice::from_raw_parts(buffer.data, buffer.len) }.to_vec();
+            unsafe { markit_buffer_free(buffer) };
+            bytes
+        };
+        let html = read(unsafe { markit_render_flavor(source.as_ptr(), source.len(), 1, 1) });
+        assert!(str::from_utf8(&html).unwrap().contains("<kbd>K</kbd>"));
+        let plain = read(unsafe { markit_render(source.as_ptr(), source.len(), 1) });
+        assert!(str::from_utf8(&plain).unwrap().contains("&lt;kbd&gt;"));
+        let json = read(unsafe { markit_render_flavor(source.as_ptr(), source.len(), 0, 1) });
+        assert!(str::from_utf8(&json).unwrap().contains("\"mention\""));
+        let binary = read(unsafe { markit_render_binary_flavor(source.as_ptr(), source.len(), 1) });
+        assert_eq!(
+            binary,
+            markit::render_document_binary_with(source, markit::Flavor::Github).unwrap()
+        );
+        for bad in [
+            unsafe { markit_render_flavor(source.as_ptr(), source.len(), 0, 9) },
+            unsafe { markit_render_binary_flavor(source.as_ptr(), source.len(), 9) },
+        ] {
+            assert_eq!(bad.status, 2);
+            unsafe { markit_buffer_free(bad) };
+        }
+        assert!(markit_stream_new_flavor(9).is_null());
+        let handle = markit_stream_new_flavor(1);
+        let patch = read(unsafe { markit_stream_append(handle, source.as_ptr(), source.len(), 1) });
+        assert!(str::from_utf8(&patch).unwrap().contains("\"html\""));
+        unsafe { markit_stream_free(handle) };
     }
 
     #[test]

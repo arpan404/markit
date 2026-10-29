@@ -80,10 +80,12 @@ public final class MarkitBinaryPlan {
         guard let text = String(data: try blob(id), encoding: .utf8) else { throw MarkitBinaryError.malformed }
         return text
     }
-    public static func parse(_ source: String) throws -> MarkitBinaryPlan {
+    public static func parse(_ source: String, flavor: MarkitFlavor = .standard) throws -> MarkitBinaryPlan {
         let bytes = Array(source.utf8)
         guard bytes.count <= 16 * 1024 * 1024 else { throw MarkitError.documentTooLarge }
-        return try bytes.withUnsafeBufferPointer { try MarkitBinaryPlan(markit_render_binary($0.baseAddress, $0.count)) }
+        return try bytes.withUnsafeBufferPointer {
+            try MarkitBinaryPlan(markit_render_binary_flavor($0.baseAddress, $0.count, flavor.rawValue))
+        }
     }
     /// Colours the whole source (up to 8 MiB of UTF-8; larger sources stay plain).
     /// Unknown non-empty languages use a generic lexer; "" and "text" stay plain.

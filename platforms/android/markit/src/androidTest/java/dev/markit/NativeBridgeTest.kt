@@ -28,4 +28,17 @@ class NativeBridgeTest {
     @Test fun invalidNativeHandlesThrowRatherThanDereferenceForgedPointers() {
         try { Markit.nativeAppend(Long.MAX_VALUE,"x",false); fail("invalid handle accepted") } catch (_: IllegalStateException) {}
     }
+    @Test fun githubFlavourCarriesTaskOffsetsAlertsAndReferences() {
+        val source = "> [!NOTE]\n> Hi @octocat\n\n- [ ] todo\n"
+        val document = Markit.parse(source, MarkitFlavor.GITHUB)
+        assertTrue(document.spans.any { it.kind == "alert" && it.string("alert") == "note" })
+        assertTrue(document.spans.any { it.kind == "reference" && it.string("reference_kind") == "mention" })
+        val offset = document.spans.first { it.kind == "task" }.number("offset")
+        assertEquals("[ ]", source.substring(offset - 1, offset + 2))
+        assertFalse(Markit.parse(source).spans.any { it.kind == "alert" })
+        MarkitStream(MarkitFlavor.GITHUB).use { stream ->
+            val spans = stream.append(source, true).documents.flatMap { it.spans }
+            assertTrue(spans.any { it.kind == "task" && it.number("offset") == offset && !it.bool("checked") })
+        }
+    }
 }

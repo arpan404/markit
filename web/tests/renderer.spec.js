@@ -104,7 +104,7 @@ test('compact worker highlighting exactly matches legacy tokens and colors', asy
 });
 
 test('worker highlighting colours a whole large file and unknown languages', async ({ page }) => {
-  await page.goto('/'); await expect(page.getByRole('status')).toContainText('Ready');
+  await page.goto('/'); await expect(page.locator('#status')).toContainText('Ready');
   const result = await page.evaluate(async () => {
     // About 680 KB and 160k runs: far past the 8,192-run fence budget.
     const source = 'const x = 1; // note\n'.repeat(32000) + 'return "end";\n';

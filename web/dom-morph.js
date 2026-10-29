@@ -5,6 +5,14 @@
 // the open block or a block that changed.
 
 const HTML = 'http://www.w3.org/1999/xhtml';
+/** Elements a renderer changes after insertion, and the attributes that identify them. */
+const HOSTED = {
+  img: ['data-markit-src', 'alt'],
+  source: ['data-markit-srcset', 'media', 'type'],
+  video: ['data-markit-src'],
+  input: ['type', 'checked', 'data-markit-task', 'data-markit-task-offset'],
+};
+const DIAGRAM = ['class', 'data-markit-diagram', 'data-markit-diagram-source'];
 
 /**
  * `hooks.code(live, next)` keeps a code section in place (true) or lets it be
@@ -39,10 +47,13 @@ function morphNode(live, wanted, hooks) {
   if (wanted.localName === 'section' && wanted.hasAttribute('data-markit-code')) {
     return live.hasAttribute('data-markit-code') && hooks.code(live, wanted);
   }
-  if (wanted.localName === 'img') {
-    // The host resolves images into `src`; a different image starts again.
-    return live.getAttribute('data-markit-src') === wanted.getAttribute('data-markit-src')
-      && live.getAttribute('alt') === wanted.getAttribute('alt');
+  const hosted = HOSTED[wanted.localName];
+  // The host resolves media into `src`/`srcset` and task boxes are enabled for it;
+  // the element stays while what it shows holds, and a different one starts again.
+  if (hosted) return hosted.every(name => live.getAttribute(name) === wanted.getAttribute(name));
+  if (wanted.localName === 'div' && wanted.hasAttribute('data-markit-diagram') && live.hasAttribute('data-requested')) {
+    // A diagram the host was asked to draw keeps its drawing and hidden fallback.
+    return DIAGRAM.every(name => live.getAttribute(name) === wanted.getAttribute(name));
   }
   syncAttributes(live, wanted);
   morphChildren(live, wanted, hooks);
