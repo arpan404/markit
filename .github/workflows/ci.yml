@@ -24,6 +24,7 @@ jobs:
       - run: npm --prefix web ci
       - run: cd web && npx playwright install --with-deps chromium
       - run: npm --prefix web test
+      - run: npm --prefix web run test:node
       - run: cd web && npm pack --dry-run
       - run: MARKIT_FEATURES=grammars ./scripts/build-web.sh
   ios:

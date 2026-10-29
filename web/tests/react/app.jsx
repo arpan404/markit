@@ -7,11 +7,11 @@ let root;
 let setMessages = () => {};
 const renders = new Map();
 
-function Transcript({ initial, lazy }) {
+function Transcript({ initial, lazy, code }) {
   const [messages, set] = useState(initial);
   setMessages = set;
   return messages.map(message => (
-    <Markit key={message.id} data-id={message.id} markdown={message.text} finalized={message.done !== false} lazy={lazy}
+    <Markit key={message.id} data-id={message.id} markdown={message.text} finalized={message.done !== false} lazy={lazy} code={code}
       onRender={() => renders.set(message.id, (renders.get(message.id) ?? 0) + 1)} />
   ));
 }
@@ -30,7 +30,7 @@ function mount(element, strict) {
 }
 
 window.app = {
-  mountTranscript(messages, { strict = false, lazy = false } = {}) { renders.clear(); mount(<Transcript initial={messages} lazy={lazy} />, strict); },
+  mountTranscript(messages, { strict = false, lazy = false, code } = {}) { renders.clear(); mount(<Transcript initial={messages} lazy={lazy} code={code} />, strict); },
   setMessages(messages) { flushSync(() => setMessages(messages)); },
   mountImperative(strict = false) { mount(<Imperative />, strict); },
   unmount() { root?.unmount(); root = undefined; },

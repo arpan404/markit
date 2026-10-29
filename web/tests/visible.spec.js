@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test('packed visible rows match Rust HTML for Unicode, multiline tokens, diff and nested fences', async ({ page }) => {
-  await page.goto('/'); await expect(page.getByRole('status')).toContainText('Ready');
+  await page.goto('/'); await expect(page.locator('#status')).toContainText('Ready');
   const failures = await page.evaluate(async () => {
     const wasm = await import('/pkg/markit_wasm.js'); await wasm.default();
     const { codeLines } = await import('/code-lines.js');
@@ -19,7 +19,7 @@ test('packed visible rows match Rust HTML for Unicode, multiline tokens, diff an
       const baseline = document.createElement('div'); baseline.innerHTML = wasm.renderHtml(markdown);
       const fullSource = baseline.querySelector('code').textContent;
       const expected = [...baseline.querySelectorAll('.mk-line')];
-      const lines = codeLines(fullSource, wasm.highlightCodePacked(fullSource, language), language === 'diff');
+      const lines = codeLines(fullSource, wasm.highlightCodePacked(fullSource, language), language === 'diff' ? wasm.diffRows(fullSource) : null);
       for (let i = 0; i < expected.length; i++) {
         if (lines.row(i).outerHTML !== expected[i].outerHTML) { failures.push({language, line: i}); break; }
       }
@@ -30,7 +30,7 @@ test('packed visible rows match Rust HTML for Unicode, multiline tokens, diff an
 });
 
 test('initial DOM never constructs offscreen code rows and scrolling reconstructs exact last line', async ({ page }) => {
-  await page.goto('/'); await expect(page.getByRole('status')).toContainText('Ready');
+  await page.goto('/'); await expect(page.locator('#status')).toContainText('Ready');
   const count = await page.evaluate(async () => {
     let built = 0;
     const create = document.createElement.bind(document);
@@ -45,7 +45,7 @@ test('initial DOM never constructs offscreen code rows and scrolling reconstruct
 });
 
 test('nested code payloads render exactly like the existing Rust HTML API', async ({ page }) => {
-  await page.goto('/'); await expect(page.getByRole('status')).toContainText('Ready');
+  await page.goto('/'); await expect(page.locator('#status')).toContainText('Ready');
   const equal = await page.evaluate(async () => {
     const wasm = await import('/pkg/markit_wasm.js'); await wasm.default();
     const markdown = '> quote\n>\n> ```ts title="nested.ts"\n> const café = "😀";\n> /* multi\n> line */\n> ```\n\n- item\n\n  ```diff\n  -old\n  +new\n  ```';

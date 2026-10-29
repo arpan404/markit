@@ -3,12 +3,16 @@ mod fixture;
 
 #[test]
 fn append_patch_bytes_match_baseline_for_fences_references_tables_and_math() {
-    // Golden FNV-1a of every serialized patch at 6e578a9, re-recorded when
-    // unknown fence languages gained the generic lexer: only the transient
-    // fences whose info string is a partial or unknown name (`r`, `pyt`,
-    // `rust&amp;`) changed. Includes replace offsets, omitted fields, span
-    // order, HTML bytes and native PNG bytes.
-    // Exercise all three output modes, including partial lines and closers.
+    // Golden FNV-1a of every serialized patch at 6e578a9, re-recorded for
+    // two intended HTML changes (verified line by line to be exactly the
+    // union of both branches' patch diffs):
+    // - ace/highlight-large-files: unknown fence languages gained the
+    //   generic lexer, so transient fences whose info string is a partial or
+    //   unknown name (`r`, `pyt`, `rust&amp;`) changed;
+    // - ace/web-runtime: HTML fence chrome (diff rows, header stats, title
+    //   class, copy status).
+    // Includes replace offsets, omitted fields, span order, HTML bytes and
+    // native PNG bytes.    // Exercise all three output modes, including partial lines and closers.
     let mut hash = 0xcbf29ce484222325u64;
     for parts in fixture::sequences() {
         for mode in 0..3 {
@@ -26,5 +30,5 @@ fn append_patch_bytes_match_baseline_for_fences_references_tables_and_math() {
             }
         }
     }
-    assert_eq!(hash, 0x9707859ad7773229);
+    assert_eq!(hash, 0x4f48d6b468592107);
 }

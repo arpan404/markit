@@ -22,7 +22,7 @@ pub use span_index::SpanIndex;
 pub use web_patch::encode_web_patch;
 
 pub use document::{parse, Block, Document, Span, Style};
-pub use fence::{fence_info, FenceInfo};
+pub use fence::{diff_rows_packed, fence_info, DiffCursor, DiffKind, DiffRow, FenceInfo};
 pub use highlight::{
     code_document_json, for_each_code_span, highlight, highlight_json, highlight_packed,
     language_alias, BorrowedCodeSpan, CodeToken, HighlightedCode,

@@ -81,3 +81,10 @@ test('lazy messages render as plain text until scrolled near', async ({ page }) 
   await expect(page.locator('[data-id="m79"] h2')).toHaveText('Message 79');
   await expect(page.locator('[data-id="m79"]')).not.toHaveClass(/mk-pending/);
 });
+
+test('code fence options pass through the component', async ({ page }) => {
+  const text = '```ts\n' + Array.from({ length: 12 }, (_, i) => `const v${i} = ${i};`).join('\n') + '\n```\n';
+  await page.evaluate(text => window.app.mountTranscript([{ id: 'code', text }], { code: { collapseAfter: 5, lineNumbersFrom: 20 } }), text);
+  await expect(page.getByRole('button', { name: 'Show all 12 lines' })).toBeVisible();
+  await expect(page.locator('[data-id="code"] section')).toHaveAttribute('data-numbers', 'off');
+});

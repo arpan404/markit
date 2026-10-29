@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test.beforeEach(async ({ page }) => { await page.goto('/'); await expect(page.getByRole('status')).toContainText('Ready'); });
+test.beforeEach(async ({ page }) => { await page.goto('/'); await expect(page.locator('#status')).toContainText('Ready'); });
 test('Wasm worker renders code, math, tables, tasks, and reference actions', async ({ page }) => {
   await expect(page.locator('#preview h1')).toHaveText('One shared engine');
   await expect(page.locator('#preview .mk-math')).toHaveCount(2);
@@ -8,7 +8,7 @@ test('Wasm worker renders code, math, tables, tasks, and reference actions', asy
   await expect(page.locator('#preview input[type=checkbox]')).toHaveCount(3);
   await expect(page.locator('#preview [style*="--mk-dark"]')).not.toHaveCount(0);
   await page.locator('[data-markit-reference="src/hello.ts:12"]').press('Enter');
-  await expect(page.getByRole('status')).toContainText('file: src/hello.ts:12');
+  await expect(page.locator('#status')).toContainText('file: src/hello.ts:12');
 });
 test('raw HTML stays inert and unauthorized images never make network requests', async ({ page }) => {
   const requests = [];

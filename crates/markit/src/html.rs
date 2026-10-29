@@ -359,42 +359,129 @@ fn push_usize(value: usize, output: &mut String) {
     output.push_str(std::str::from_utf8(&buf[i..]).expect("digits are utf-8"));
 }
 
-fn open_line(line: usize, output: &mut String) {
-    output.push_str("<span class=\"mk-line\" data-line=\"");
-    push_usize(line, output);
-    output.push_str("\">");
-}
-
-fn write_header(info: &crate::FenceInfo, output: &mut String) {
-    output.push_str("<section class=\"mk-codeblock\"><header><span>");
-    escape_into(info.file.as_deref().unwrap_or(&info.language), output);
+fn write_header(info: &crate::FenceInfo, diff: Option<&crate::DiffCursor>, output: &mut String) {
+    output.push_str("<section class=\"mk-codeblock\"><header>");
+    match info.file.as_deref() {
+        Some(file) => {
+            output.push_str("<span class=\"mk-code-title\" title=\"");
+            escape_into(file, output);
+            output.push_str("\"><bdi>");
+            escape_into(file, output);
+            output.push_str("</bdi></span>");
+        }
+        None => {
+            output.push_str("<span class=\"mk-code-title\">");
+            let label = if info.language.is_empty() {
+                "text"
+            } else {
+                &info.language
+            };
+            escape_into(label, output);
+            output.push_str("</span>");
+        }
+    }
+    if let Some(diff) = diff {
+        output.push_str("<span class=\"mk-diff-stat\"><span class=\"mk-diff-added\">+");
+        push_usize(diff.additions as usize, output);
+        output.push_str("</span> <span class=\"mk-diff-removed\">\u{2212}");
+        push_usize(diff.deletions as usize, output);
+        output.push_str("</span></span>");
+    }
     output.push_str(
-        "</span><button type=\"button\" data-markit-copy aria-label=\"Copy code\">Copy</button></header><pre><code class=\"language-",
+        "<button type=\"button\" data-markit-copy aria-label=\"Copy code\">Copy</button><span class=\"mk-copy-status\" role=\"status\"></span></header><pre><code class=\"language-",
     );
     escape_into(&info.language, output);
     output.push_str("\">");
 }
 
+/// Line numbering and diff state where the next line starts.
+#[derive(Clone)]
+struct Lines {
+    /// Number of the next line, from 1.
+    next: usize,
+    diff: crate::DiffCursor,
+    /// Closing markup of the line left open, if any.
+    open: Option<&'static str>,
+}
+
+impl Lines {
+    fn new() -> Self {
+        Self {
+            next: 1,
+            diff: crate::DiffCursor::default(),
+            open: None,
+        }
+    }
+
+    /// Opens the line whose full text (as known so far) is `text`.
+    fn open(&mut self, text: &str, diff: bool, output: &mut String) {
+        if !diff {
+            output.push_str("<span class=\"mk-line\" data-line=\"");
+            push_usize(self.next, output);
+            output.push_str("\">");
+            self.open = Some("</span>");
+        } else {
+            let row = self.diff.row(text);
+            output.push_str("<span class=\"mk-line mk-diff-");
+            output.push_str(row.kind.class());
+            output.push('"');
+            if let Some(old) = row.old {
+                output.push_str(" data-old=\"");
+                push_usize(old as usize, output);
+                output.push('"');
+            }
+            let (tag, close) = match row.kind {
+                crate::DiffKind::Addition => ("><ins", "</ins></span>"),
+                crate::DiffKind::Deletion => ("><del", "</del></span>"),
+                _ => ("><span", "</span></span>"),
+            };
+            output.push_str(tag);
+            if let Some(new) = row.new {
+                output.push_str(" data-new=\"");
+                push_usize(new as usize, output);
+                output.push('"');
+            }
+            output.push('>');
+            self.open = Some(close);
+        }
+        self.next += 1;
+    }
+
+    fn close(&mut self, output: &mut String) {
+        if let Some(close) = self.open.take() {
+            output.push_str(close);
+        }
+    }
+
+    /// Closes the open line, or writes the empty line after a final newline.
+    fn finish(&mut self, diff: bool, output: &mut String) {
+        if self.open.is_some() {
+            self.close(output);
+        } else if diff {
+            output.push_str("<span class=\"mk-line mk-diff-context\"></span>");
+        } else {
+            output.push_str("<span class=\"mk-line\" data-line=\"");
+            push_usize(self.next, output);
+            output.push_str("\"></span>");
+        }
+    }
+}
+
 /// Retains HTML for every line the highlighter has closed. Append-only fences
-/// rewrite the open line instead of the whole block.
+/// rewrite the open line instead of the whole block. The header is written last
+/// because a diff's +/- counts grow with the fence.
 pub(crate) struct CodeHtml {
-    html: String,
-    prefix_len: usize,
+    body: String,
     stable: usize,
-    line: usize,
+    lines: Lines,
 }
 
 impl CodeHtml {
-    pub(crate) fn new(info: &crate::FenceInfo) -> Self {
-        let mut html = String::new();
-        write_header(info, &mut html);
-        open_line(1, &mut html);
-        let prefix_len = html.len();
+    pub(crate) fn new(_info: &crate::FenceInfo) -> Self {
         Self {
-            html,
-            prefix_len,
+            body: String::new(),
             stable: 0,
-            line: 1,
+            lines: Lines::new(),
         }
     }
 
@@ -409,43 +496,33 @@ impl CodeHtml {
             *self = Self::new(info);
         }
         if stable > self.stable {
-            let (line, at_line_start) = write_runs(
-                &mut self.html,
+            write_runs(
+                &mut self.body,
                 code,
                 info,
                 runs,
                 self.stable,
                 stable,
-                self.line,
+                &mut self.lines,
             );
-            debug_assert!(at_line_start);
-            self.line = line;
+            debug_assert!(self.lines.open.is_none());
             self.stable = stable;
-            self.prefix_len = self.html.len();
         }
-        let saved = self.prefix_len;
-        let (_line, at_line_start) = write_runs(
-            &mut self.html,
-            code,
-            info,
-            runs,
-            stable,
-            code.len(),
-            self.line,
-        );
-        if info.diff && !at_line_start {
-            self.html.push_str("</span>");
-        }
-        self.html.push_str("</span></code></pre></section>\n");
-        let result = self.html.clone();
-        self.html.truncate(saved);
-        result
+        let mut tail = String::new();
+        let mut lines = self.lines.clone();
+        write_runs(&mut tail, code, info, runs, stable, code.len(), &mut lines);
+        lines.finish(info.diff, &mut tail);
+        let mut html = String::with_capacity(self.body.len() + tail.len() + 320);
+        write_header(info, info.diff.then_some(&lines.diff), &mut html);
+        html.push_str(&self.body);
+        html.push_str(&tail);
+        html.push_str("</code></pre></section>\n");
+        html
     }
 }
 
-/// Write highlighted `code[from..to]` into an already-open line span.
-/// Returns the line number of the span left open, and whether that span is
-/// still at column zero.
+/// Write highlighted `code[from..to]`, where `from` starts a line. Lines open
+/// at their first character, once their kind is known, and close at `\n`.
 fn write_runs(
     output: &mut String,
     code: &str,
@@ -453,11 +530,10 @@ fn write_runs(
     runs: &crate::highlight::LexRuns,
     from: usize,
     to: usize,
-    mut line: usize,
-) -> (usize, bool) {
+    lines: &mut Lines,
+) {
     let start = runs.first_ending_after(from);
     let mut byte = if start == 0 { 0 } else { runs.end(start - 1) };
-    let mut at_line_start = true;
     for (end, id) in runs.from(start) {
         if byte >= to {
             break;
@@ -475,10 +551,11 @@ fn write_runs(
             if part_start >= to {
                 break;
             }
-            if at_line_start && info.diff {
-                output.push_str("<span class=\"mk-diff-");
-                output.push_str(diff_kind(part));
-                output.push_str("\">");
+            if lines.open.is_none() {
+                let line_end = code[part_start..]
+                    .find('\n')
+                    .map_or(code.len(), |at| part_start + at + 1);
+                lines.open(&code[part_start..line_end], info.diff, output);
             }
             output.push_str("<span style=\"--mk-light:");
             output.push_str(light);
@@ -488,20 +565,11 @@ fn write_runs(
             escape_into(part, output);
             output.push_str("</span>");
             if part.ends_with('\n') {
-                if info.diff {
-                    output.push_str("</span>");
-                }
-                output.push_str("</span>");
-                line += 1;
-                open_line(line, output);
-                at_line_start = true;
-            } else {
-                at_line_start = false;
+                lines.close(output);
             }
         }
         byte = end;
     }
-    (line, at_line_start)
 }
 
 fn render_code(code: &str, info: &crate::FenceInfo) -> String {
@@ -518,6 +586,41 @@ pub fn render_html(source: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{render_code, CodeHtml};
+
+    #[test]
+    fn diff_fences_mark_insertions_deletions_and_hunk_line_numbers() {
+        let html = crate::render_html("```diff\n@@ -4,2 +4,2 @@\n keep\n-old\n+new\n```\n");
+        assert!(html.contains("<span class=\"mk-diff-added\">+1</span> <span class=\"mk-diff-removed\">\u{2212}1</span>"), "{html}");
+        assert!(
+            html.contains(
+                "<span class=\"mk-line mk-diff-context\" data-old=\"4\"><span data-new=\"4\">"
+            ),
+            "{html}"
+        );
+        assert!(
+            html.contains("<span class=\"mk-line mk-diff-deletion\" data-old=\"5\"><del>"),
+            "{html}"
+        );
+        assert!(
+            html.contains("<span class=\"mk-line mk-diff-addition\"><ins data-new=\"5\">"),
+            "{html}"
+        );
+        assert!(
+            html.contains("role=\"status\""),
+            "copy is announced: {html}"
+        );
+    }
+
+    #[test]
+    fn file_labels_keep_their_full_path_as_a_title() {
+        let html = crate::render_html("```ts title=\"src/deep/a.ts\"\nx\n```\n");
+        assert!(html.contains("<span class=\"mk-code-title\" title=\"src/deep/a.ts\"><bdi>src/deep/a.ts</bdi></span>"), "{html}");
+        let plain = crate::render_html("```\nx\n```\n");
+        assert!(
+            plain.contains("<span class=\"mk-code-title\">text</span>"),
+            "{plain}"
+        );
+    }
 
     #[test]
     fn incremental_code_html_matches_a_fresh_render() {

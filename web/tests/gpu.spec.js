@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test('WebGPU colors source, stays idle, scrolls, copies, changes theme and cleans up', async ({page,context}) => {
   const errors=[]; page.on('pageerror',error=>errors.push(String(error))); page.on('console',message=>{if(message.type()==='error')errors.push(message.text());});
-  await page.goto('/'); await expect(page.getByRole('status')).toContainText('Ready');
+  await page.goto('/'); await expect(page.locator('#status')).toContainText('Ready');
   const available=await page.evaluate(async()=>{const a=await navigator.gpu?.requestAdapter({powerPreference:'low-power'});return !!a && !a.info?.isFallbackAdapter;});
   test.skip(!available,'A hardware WebGPU adapter is required');
   await page.evaluate(async()=>{
