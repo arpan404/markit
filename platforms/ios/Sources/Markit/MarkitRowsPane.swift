@@ -11,9 +11,10 @@ final class MarkitRowsPane: UIView, UITableViewDataSource {
     private var cells: [[MarkitSpan]] = []
     private let isTable: Bool
     private let contentWidth: CGFloat
+    private let theme: MarkitTheme
 
-    init(document: MarkitDocument, range: NSRange, kind: String, availableWidth: CGFloat) {
-        self.document = document; sourceRange = range; isTable = kind == "table"
+    init(document: MarkitDocument, range: NSRange, kind: String, availableWidth: CGFloat, theme: MarkitTheme = .standard) {
+        self.document = document; sourceRange = range; isTable = kind == "table"; self.theme = theme
         let text = document.text as NSString
         if isTable {
             let spans = document.spans.filter { $0.kind == "table_cell" && $0.start >= range.location && $0.end <= NSMaxRange(range) }
@@ -35,17 +36,18 @@ final class MarkitRowsPane: UIView, UITableViewDataSource {
         super.init(frame: .zero)
         let header = UIStackView(); header.axis = .horizontal; header.alignment = .center
         header.isLayoutMarginsRelativeArrangement = true; header.directionalLayoutMargins = .init(top: 6, leading: 12, bottom: 6, trailing: 12)
-        header.backgroundColor = .secondarySystemBackground
-        let label = UILabel(); label.font = .preferredFont(forTextStyle: .caption1); label.textColor = .secondaryLabel
+        header.backgroundColor = theme.codeHeaderBackground
+        let label = UILabel(); label.font = theme.captionFont.font(compatibleWith: nil); label.textColor = theme.secondaryTextColor
         let metadata = document.spans.first { $0.kind == "code_metadata" && $0.start == range.location }
         label.text = isTable ? "Table" : metadata?.file ?? document.spans.first(where: { $0.kind == "code_block" && $0.start == range.location })?.language ?? "Code"
         label.lineBreakMode = .byTruncatingHead
         let button = UIButton(type: .system); button.setTitle("Copy", for: .normal); button.accessibilityLabel = isTable ? "Copy table" : "Copy code"
-        button.addAction(UIAction { _ in UIPasteboard.general.string = document.source(in: range); button.setTitle("Copied", for: .normal) }, for: .touchUpInside)
+        let copyText = document.source(in: range)
+        button.addAction(UIAction { [weak button] _ in UIPasteboard.general.string = copyText; button?.setTitle("Copied", for: .normal) }, for: .touchUpInside)
         header.addArrangedSubview(label); header.addArrangedSubview(button)
         let scroller = UIScrollView(); scroller.alwaysBounceHorizontal = contentWidth > availableWidth
         table.dataSource = self; table.separatorStyle = isTable ? .singleLine : .none
-        table.rowHeight = isTable ? 48 : ceil(UIFontMetrics.default.scaledFont(for: .monospacedSystemFont(ofSize: 13, weight: .regular)).lineHeight + 4)
+        table.rowHeight = isTable ? 48 : ceil(theme.monospaceFont.font(compatibleWith: nil).lineHeight + 4)
         table.backgroundColor = .clear; table.contentInset = .zero
         table.accessibilityIdentifier = isTable ? "markit-table-rows" : "markit-code-lines"
         scroller.addSubview(table)
@@ -61,7 +63,8 @@ final class MarkitRowsPane: UIView, UITableViewDataSource {
             table.topAnchor.constraint(equalTo: scroller.contentLayoutGuide.topAnchor), table.bottomAnchor.constraint(equalTo: scroller.contentLayoutGuide.bottomAnchor), table.leadingAnchor.constraint(equalTo: scroller.contentLayoutGuide.leadingAnchor), table.trailingAnchor.constraint(equalTo: scroller.contentLayoutGuide.trailingAnchor),
             table.widthAnchor.constraint(equalToConstant: contentWidth), table.heightAnchor.constraint(equalTo: scroller.frameLayoutGuide.heightAnchor)
         ])
-        layer.cornerRadius = 8; layer.borderWidth = 1; layer.borderColor = UIColor.separator.cgColor; clipsToBounds = true
+        backgroundColor = theme.codeBlockBackground
+        layer.cornerRadius = theme.codeCornerRadius; layer.borderWidth = 1; layer.borderColor = theme.codeBorder.cgColor; clipsToBounds = true
     }
     required init?(coder: NSCoder) { fatalError("Use init(document:range:kind:availableWidth:)") }
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { isTable ? cells.count : lines.count }
@@ -72,7 +75,7 @@ final class MarkitRowsPane: UIView, UITableViewDataSource {
         let stack = UIStackView(); stack.axis = .horizontal; stack.alignment = .center
         if isTable {
             for span in cells[indexPath.row] {
-                let label = UILabel(); label.attributedText = attributed(document, range: span.range, traits: traitCollection)
+                let label = UILabel(); label.attributedText = MarkitStyler(theme: theme, traits: traitCollection).attributed(document, range: span.range)
                 label.textAlignment = span.alignment == "right" ? .right : span.alignment == "center" ? .center : .left
                 label.numberOfLines = 2; label.widthAnchor.constraint(equalToConstant: contentWidth / CGFloat(max(1, cells[indexPath.row].count)) - 16).isActive = true
                 stack.addArrangedSubview(label)
@@ -81,7 +84,7 @@ final class MarkitRowsPane: UIView, UITableViewDataSource {
         } else {
             let number = UILabel(); number.text = String(indexPath.row + 1); number.textColor = .tertiaryLabel; number.textAlignment = .right
             number.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular); number.widthAnchor.constraint(equalToConstant: 40).isActive = true
-            let label = UILabel(); label.attributedText = attributed(document, range: lines[indexPath.row], traits: traitCollection)
+            let label = UILabel(); label.attributedText = MarkitStyler(theme: theme, traits: traitCollection).attributed(document, range: lines[indexPath.row])
             stack.addArrangedSubview(number); stack.addArrangedSubview(label); stack.spacing = 12
         }
         cell.contentView.addSubview(stack); stack.translatesAutoresizingMaskIntoConstraints = false

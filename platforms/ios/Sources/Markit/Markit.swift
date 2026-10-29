@@ -52,9 +52,10 @@ public struct MarkitSpan: Decodable, Sendable {
     public let reference_kind: String?
     public var range: NSRange { NSRange(location: start, length: end - start) }
 }
-public struct MarkitReference: Sendable {
+public struct MarkitReference: Sendable, Equatable {
     public let kind: String
     public let target: String
+    public init(kind: String, target: String) { self.kind = kind; self.target = target }
 }
 public struct MarkitPatch: Decodable, Sendable {
     public struct Block: Decodable, Sendable { public let document: MarkitDocument }
