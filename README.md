@@ -4,6 +4,8 @@ Shared Rust Markdown engine for iOS, Android, and web. Parses once, renders nati
 
 Renders CommonMark, tables, task lists, quotes, code fences with copy headers, diffs, `$`/`$$` math, and bare links. Syntax colors come from a built-in lexical tokenizer; fuller Sublime grammars are opt-in. Hosts handle file references, thread links, and image bytes.
 
+An opt-in GitHub flavour renders PR, issue and comment bodies as GitHub does: footnotes, `> [!NOTE]` alerts, an allowlisted HTML subset (`<details>`, `<picture>`, `<kbd>`, ...) whose media the host resolves, task boxes that report their source offset, `@mentions`, `#123`, commit SHAs, emoji shortcodes and mermaid diagram hooks. The default flavour is unchanged: raw HTML stays text.
+
 ## Web
 
 ```js
@@ -15,6 +17,15 @@ const renderer = new MarkitRenderer(document.querySelector('#preview'), {
 await renderer.render('# Hello\n\n**Rendered by Rust.**');
 await renderer.render(growingMessage, { finalized: false });
 renderer.destroy();
+
+// PR, issue and comment bodies.
+const body = new MarkitRenderer(element, {
+  flavor: 'github',
+  onReference: ({ kind, target }) => openForge(kind, target), // mention, issue, commit too
+  onTask: ({ offset, checked }) => save(source.slice(0, offset) + (checked ? 'x' : ' ') + source.slice(offset + 1)),
+  resolveImage, resolveMedia: (url, kind, signal) => authorizedVideo(url, signal),
+  renderDiagram: (language, source, signal) => drawMermaid(source, signal), // SVG string or element
+});
 ```
 
 Parsing and highlighting run in a worker (one active render, one queued). Serve the demo with `npm --prefix web run serve` after building Wasm.
@@ -23,6 +34,7 @@ Parsing and highlighting run in a worker (one active render, one queued). Serve 
 
 ```swift
 MarkitText(markdown, finalized: !streaming) // SwiftUI
+let body = try Markit.parse(prBody, flavor: .github) // task, alert, diagram, ... spans
 
 let view = MarkitView() // UIKit, main actor
 view.onReference = { openReference($0) }
@@ -36,6 +48,7 @@ view.render(markdown, finalized: !streaming)
 val view = MarkitView(context)
 view.onReference = { openReference(it) }
 view.resolveImage = { authorizedDecodedBitmap(it) }
+view.flavor = MarkitFlavor.GITHUB // PR, issue and comment bodies
 view.render(markdown, finalized = !streaming)
 view.close()
 ```
@@ -83,7 +96,7 @@ rustup target add wasm32-unknown-unknown aarch64-apple-ios aarch64-apple-ios-sim
 ./scripts/check.sh
 ```
 
-Details: [integration](docs/integration.md), [binary transport](docs/binary-transport.md), [WebGPU](docs/webgpu.md).
+Details: [integration](docs/integration.md) (including the [GitHub flavour](docs/integration.md#github-flavour)), [binary transport](docs/binary-transport.md), [WebGPU](docs/webgpu.md).
 
 ## License
 
