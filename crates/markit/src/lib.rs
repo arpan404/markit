@@ -44,7 +44,42 @@ pub fn highlight_grammar(source: &str, language: &str) -> Option<std::sync::Arc<
         None
     }
 }
+pub use github::with_task;
 pub use html::{render_html, render_html_into};
+
+/// [`render_html`] in a chosen [`Flavor`].
+pub fn render_html_with(source: &str, flavor: Flavor) -> String {
+    let mut output = String::with_capacity(source.len());
+    render_html_into_with(source, &mut output, flavor);
+    output
+}
+
+/// [`render_html_into`] in a chosen [`Flavor`].
+pub fn render_html_into_with(source: &str, output: &mut String, flavor: Flavor) {
+    match flavor {
+        Flavor::Default => render_html_into(source, output),
+        Flavor::Github => github::render_html(source, output),
+    }
+}
+
+/// [`parse`] in a chosen [`Flavor`].
+pub fn parse_with(source: &str, flavor: Flavor) -> Document {
+    match flavor {
+        Flavor::Default => parse(source),
+        Flavor::Github => github::parse(source),
+    }
+}
+
+/// [`render_document_json`] in a chosen [`Flavor`].
+pub fn render_document_json_with(source: &str, flavor: Flavor) -> String {
+    serde_json::to_string(&parse_with(source, flavor))
+        .expect("document serialization is infallible")
+}
+
+/// [`render_document_binary`] in a chosen [`Flavor`].
+pub fn render_document_binary_with(source: &str, flavor: Flavor) -> Result<Vec<u8>, BinaryError> {
+    encode_document_binary(&parse_with(source, flavor))
+}
 pub use math::{render_math, MathVisual};
 pub use reference::{reference_target, Reference};
 pub use stream::{RenderPatch, RenderedBlock, StreamRenderer, WebCode};

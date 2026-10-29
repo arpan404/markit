@@ -174,6 +174,47 @@ pub fn encode_document_binary(doc: &Document) -> Result<Vec<u8>, BinaryError> {
                 args[3] = table.string(alignment)?;
                 20
             }
+            Style::Alert { alert } => {
+                args[0] = table.string(alert)?;
+                23
+            }
+            Style::FootnoteReference { label, number } => {
+                args[0] = table.string(label)?;
+                args[1] = word(*number)?;
+                24
+            }
+            Style::FootnoteDefinition { label, number } => {
+                args[0] = table.string(label)?;
+                args[1] = word(*number)?;
+                25
+            }
+            Style::Task {
+                index,
+                offset,
+                checked,
+            } => {
+                args[0] = word(*index)?;
+                args[1] = word(*offset)?;
+                args[2] = u32::from(*checked);
+                26
+            }
+            Style::Diagram { language, source } => {
+                args[0] = table.string(language)?;
+                args[1] = table.string(source)?;
+                27
+            }
+            Style::Video { url } => {
+                args[0] = table.string(url)?;
+                28
+            }
+            Style::Html { tag } => {
+                args[0] = table.string(tag)?;
+                29
+            }
+            Style::DarkImage { url } => {
+                args[0] = table.string(url)?;
+                30
+            }
         };
         for n in [word(span.start)?, word(span.end)?, tag]
             .into_iter()

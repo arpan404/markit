@@ -87,6 +87,50 @@ pub enum Style {
         header: bool,
         alignment: String,
     },
+    /// GitHub flavour: a `> [!NOTE]` alert; `alert` is `note`, `tip`,
+    /// `important`, `warning` or `caution`. Its title is the first line.
+    Alert {
+        alert: String,
+    },
+    /// GitHub flavour: a footnote marker, drawn as `[number]`.
+    FootnoteReference {
+        label: String,
+        number: usize,
+    },
+    /// GitHub flavour: one note in the footnotes list after the last block.
+    FootnoteDefinition {
+        label: String,
+        number: usize,
+    },
+    /// GitHub flavour: a task box. `offset` is the UTF-16 index of the
+    /// character inside its `[ ]` in the Markdown source, `index` its order.
+    Task {
+        index: usize,
+        offset: usize,
+        checked: bool,
+    },
+    /// GitHub flavour: a closed diagram fence. The code block inside is the
+    /// fallback; hosts may draw `source` instead.
+    Diagram {
+        language: String,
+        source: String,
+    },
+    /// GitHub flavour: an HTML `<video>`, drawn as `[video]`. The host
+    /// resolves `url`; markit never loads it.
+    Video {
+        url: String,
+    },
+    /// GitHub flavour: the dark-mode source of the image on the same range,
+    /// from a `<picture>` `<source media="(prefers-color-scheme: dark)">`.
+    DarkImage {
+        url: String,
+    },
+    /// GitHub flavour: an allowlisted HTML element without its own kind
+    /// (`kbd`, `sub`, `sup`, `mark`, `ins`, `u`, `small`, `abbr`, `details`,
+    /// `summary`, `ruby`, `rt`, `rp`, `q`, `time`, `bdo`, `center`, ...).
+    Html {
+        tag: String,
+    },
 }
 
 struct Frame {

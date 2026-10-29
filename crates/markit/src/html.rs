@@ -65,11 +65,14 @@ pub(crate) fn render_html_with_refs(
     render_html_code(source, output, references, &mut render_code);
 }
 
+/// Renders one fenced or indented code block's HTML.
+pub(crate) type CodeRenderer<'r> = dyn FnMut(&str, &crate::FenceInfo) -> String + 'r;
+
 pub(crate) fn render_html_code(
     source: &str,
     output: &mut String,
     references: &crate::References,
-    code_renderer: &mut impl FnMut(&str, &crate::FenceInfo) -> String,
+    code_renderer: &mut CodeRenderer<'_>,
 ) {
     output.clear();
     output.reserve(source.len());
@@ -83,13 +86,19 @@ pub(crate) fn render_html_code(
     );
 }
 
-pub(crate) fn render_events<'a>(
+pub(crate) fn render_events(
     prepared: &crate::math::Prepared<'_>,
-    events: impl Iterator<Item = Event<'a>>,
+    events: Vec<Event<'_>>,
     output: &mut String,
 ) {
     output.clear();
-    push_events(prepared, events, output, &mut render_code, false);
+    push_events(
+        prepared,
+        events.into_iter(),
+        output,
+        &mut render_code,
+        false,
+    );
 }
 
 /// The one HTML stage behind every renderer. Raw HTML is escaped unless
@@ -99,7 +108,7 @@ pub(crate) fn push_events<'a>(
     prepared: &crate::math::Prepared<'_>,
     events: impl Iterator<Item = Event<'a>>,
     output: &mut String,
-    code_renderer: &mut impl FnMut(&str, &crate::FenceInfo) -> String,
+    code_renderer: &mut CodeRenderer<'_>,
     trusted_html: bool,
 ) {
     let mut input = events
@@ -412,7 +421,7 @@ fn write_runs(
     (line, at_line_start)
 }
 
-fn render_code(code: &str, info: &crate::FenceInfo) -> String {
+pub(crate) fn render_code(code: &str, info: &crate::FenceInfo) -> String {
     let runs = crate::highlight::lex_runs(code, &info.language);
     CodeHtml::new(info).render(code, info, &runs)
 }
