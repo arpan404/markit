@@ -1,6 +1,7 @@
-//! Growing a fence reuses the previous scan, including the plain fallback
-//! once a fence passes the run limit. Every streamed result must equal a
-//! cold scan of the same text on a thread with empty caches.
+//! Growing a source reuses the previous scan, including sources well past
+//! the Markdown fence budget, which explicit calls still colour. Every
+//! streamed result must equal a cold scan of the same text on a thread with
+//! empty caches.
 
 fn cold(code: &str, language: &str) -> (Vec<u32>, String) {
     let (code, language) = (code.to_owned(), language.to_owned());
@@ -18,8 +19,8 @@ fn sources() -> Vec<(&'static str, String)> {
     let dense: String = (0..1400)
         .map(|i| format!("let a{i} = b + c * d - e / f; // {i}\n"))
         .collect();
-    // A block comment opened after the run limit changes how earlier text
-    // could be read; the fallback must not stick in that case.
+    // A block comment opened after thousands of runs recolours the rest of
+    // the source; the rescan must start before it.
     let late_comment = format!("{}/* open\nstill comment\n*/ let x = 1;\n", dense);
     let normal: String = (0..300)
         .map(|i| format!("fn f{i}(x: u8) -> &'static str {{ \"s{i}\" }} /* c */\n"))
