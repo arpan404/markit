@@ -82,6 +82,11 @@ final class GithubInlineTests: XCTestCase {
             MarkitReference(kind: "issue", target: "#12"),
             MarkitReference(kind: "footnote", target: "n"),
         ])
+        let marker = (text.attributedText.string as NSString).range(of: "[1]")
+        let markerFont = text.attributedText.attribute(.font, at: marker.location, effectiveRange: nil) as? UIFont
+        let bodyFont = text.attributedText.attribute(.font, at: 0, effectiveRange: nil) as? UIFont
+        XCTAssertLessThan(markerFont?.pointSize ?? 0, bodyFont?.pointSize ?? 0, "footnote references are superscript")
+        XCTAssertGreaterThan(text.attributedText.attribute(.baselineOffset, at: marker.location, effectiveRange: nil) as? CGFloat ?? 0, 0)
         let note = try XCTUnwrap(textViews(in: view).first { $0.attributedText.string.contains("The note.") })
         let font = note.attributedText.attribute(.font, at: 0, effectiveRange: nil) as? UIFont
         XCTAssertEqual(font?.pointSize, MarkitTheme.standard.footnoteFont.font(compatibleWith: view.traitCollection).pointSize)

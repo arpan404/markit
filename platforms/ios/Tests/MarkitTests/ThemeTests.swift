@@ -70,7 +70,7 @@ final class ThemeTests: XCTestCase {
     func testUnknownSpanKindsRenderTheirText() throws {
         let document = try makeDocument(#"""
         {"version":2,"text":"Note: see [^1] @octo","spans":[{"start":0,"end":20,"kind":"alert","alert":"note"},
-         {"start":10,"end":14,"kind":"footnote_reference"},{"start":15,"end":20,"kind":"mention"}],
+         {"start":10,"end":14,"kind":"marginalia"},{"start":15,"end":20,"kind":"mention"}],
          "blocks":[{"start":0,"end":20,"kind":"alert"}]}
         """#)
         let text = document.attributedString(traits: large)
