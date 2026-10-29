@@ -60,6 +60,9 @@ final class InlineCodeBlockView: InlineBlockView {
         code.view.attributedText = styler.attributed(document, range: shown)
         code.view.isSelectable = host?.isTextSelectable ?? true
         code.view.accessibilityLabel = titleText
+        // A non-scrolling UITextView resizes its container to its own frame, which
+        // was fitted to the previous text; measure unbounded so new lines aren't cut.
+        code.container.size = InlineTextStack.unwrappedSize
         code.layout.ensureLayout(for: code.container)
         let used = code.layout.usedRect(for: code.container)
         textSize = CGSize(width: ceil(used.width), height: ceil(used.height))

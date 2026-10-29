@@ -70,7 +70,7 @@ final class InlineViewTests: XCTestCase {
         let collapsed = view.height(for: 320)
         let toggle = try XCTUnwrap(buttons(in: view).first { $0.title(for: .normal) == "Show all 6 lines" })
         tap(toggle)
-        XCTAssertGreaterThan(view.height(for: 320), collapsed)
+        XCTAssertGreaterThan(view.height(for: 320), collapsed, "expanded height should exceed collapsed \(collapsed)")
         XCTAssertEqual(toggle.title(for: .normal), "Collapse")
     }
 

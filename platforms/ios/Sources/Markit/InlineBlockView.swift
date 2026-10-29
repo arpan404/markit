@@ -79,9 +79,12 @@ import UIKit
     let container: NSTextContainer
     let view: CopyTextView
 
+    /// Container size for text that never wraps and grows freely downward.
+    static let unwrappedSize = CGSize(width: 20_000, height: CGFloat.greatestFiniteMagnitude)
+
     init(wraps: Bool) {
         let storage = NSTextStorage(), layout = NSLayoutManager()
-        let container = NSTextContainer(size: CGSize(width: wraps ? 0 : 20_000, height: CGFloat.greatestFiniteMagnitude))
+        let container = NSTextContainer(size: wraps ? CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude) : Self.unwrappedSize)
         container.widthTracksTextView = wraps
         container.heightTracksTextView = false
         container.lineFragmentPadding = 0
