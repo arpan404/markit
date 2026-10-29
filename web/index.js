@@ -1,90 +1,35 @@
 import { unpackHighlight } from './highlight.js';
-import { prepareCode, codeLines, firstChangedLine } from './code-lines.js';
 import { GpuCodeRenderer } from './gpu-code.js';
+import { CodeView } from './code-view.js';
+import { morphChildren } from './dom-morph.js';
+import { engineFor } from './engine.js';
+import { scheduleFrame } from './frame.js';
+export { preloadMarkit, terminateMarkitWorkers } from './engine.js';
 
-/** One Web Worker and Wasm instance serves every renderer created with the
- * same worker URL. Each renderer owns a stream inside it; requests are
- * multiplexed by id and answered in order. */
-class Engine {
-  #url; #worker; #pending = new Map(); #id = 0; #streams = 0; #shared;
-  generation = 0;
-  constructor(url, shared) { this.#url = url; this.#shared = shared; }
-  get shared() { return this.#shared; }
-  #start() {
-    this.#worker?.terminate();
-    this.generation++;
-    const worker = new Worker(this.#url, { type: 'module', name: 'markit' });
-    worker.onmessage = ({ data }) => {
-      const pending = this.#pending.get(data.id);
-      if (!pending) return;
-      this.#pending.delete(data.id);
-      if (data.error) pending.reject(Object.assign(new Error(data.error), { code: data.code })); else pending.resolve(data.result);
-    };
-    worker.onerror = event => {
-      event.preventDefault?.();
-      const error = new Error(event.message || 'Markdown worker failed');
-      for (const pending of this.#pending.values()) pending.reject(error);
-      this.#pending.clear();
-      if (this.#worker === worker) { worker.terminate(); this.#worker = undefined; }
-    };
-    this.#worker = worker;
-  }
-  /** Starts the worker on first use, or again after it failed. */
-  ensure() { if (!this.#worker) this.#start(); return this.generation; }
-  stream() { return ++this.#streams; }
-  pending(owner) { let count = 0; for (const job of this.#pending.values()) if (job.owner === owner) count++; return count; }
-  call(owner, type, fields) {
-    this.ensure();
-    return new Promise((resolve, reject) => {
-      const id = ++this.#id;
-      this.#pending.set(id, { resolve, reject, owner });
-      this.#worker.postMessage({ id, type, ...fields });
-    });
-  }
-  /** Rejects the owner's requests and frees its stream in the worker. */
-  release(owner, stream) {
-    for (const [id, job] of this.#pending) {
-      if (job.owner !== owner) continue;
-      this.#pending.delete(id); job.reject(new Error('Renderer disposed'));
-    }
-    if (this.#worker && stream !== undefined) this.#worker.postMessage({ type: 'release', stream });
-  }
-  terminate() {
-    this.#worker?.terminate(); this.#worker = undefined;
-    for (const job of this.#pending.values()) job.reject(new Error('Markdown worker terminated'));
-    this.#pending.clear();
-  }
-}
-const engines = new Map();
-function engineFor(options) {
-  const url = String(options.workerURL ?? new URL('./worker.js', import.meta.url));
-  if (options.worker === 'dedicated') return new Engine(url, false);
-  let engine = engines.get(url);
-  if (!engine) { engine = new Engine(url, true); engines.set(url, engine); }
-  return engine;
-}
-/** Starts the shared worker and Wasm compile before the first message mounts. */
-export function preloadMarkit(options = {}) {
-  if (options.worker !== 'dedicated') engineFor(options).ensure();
-}
-/** Terminates shared workers. Live renderers start a new one on their next request. */
-export function terminateMarkitWorkers() {
-  for (const engine of engines.values()) engine.terminate();
-  engines.clear();
-}
+const SECTIONS = 'section[data-markit-code]';
+const within = (node, selector) => (node.matches(selector) ? [node] : node.querySelectorAll(selector));
 
 /** One in-flight render and one queued replacement keep typing ahead of parsing.
- * Parsing and highlighting always execute in the Rust WebAssembly worker. */
+ * Parsing and highlighting run in Rust WebAssembly, in a worker or in-process.
+ * Finished patches are folded together and reach the DOM at most once per frame. */
 export class MarkitRenderer {
   #element; #engine; #stream; #generation = 0; #sent; #revision = 0;
-  #running = false; #queued; #destroyed = false; #options; #code = new WeakMap();
-  #html = []; #dirty = Infinity; #payloads = new WeakMap(); #lines = new WeakMap();
-  #urls = new Map(); #imageJobs = new Map(); #listeners = new AbortController();
-  #gpu = new GpuCodeRenderer(); #gpuViews = new Map();
+  #running = false; #queued; #destroyed = false; #options; #codeOptions;
+  /** Block payloads as the engine last described them, and the first index the DOM lacks. */
+  #html = []; #dirty = Infinity;
+  /** Finished jobs whose results wait for the next frame. */
+  #ready = []; #cancelFrame;
+  #payloads = new WeakMap(); #views = new WeakMap();
+  #urls = new Map(); #imageJobs = new Map(); #listeners;
+  #gpu = new GpuCodeRenderer();
   constructor(element, options = {}) {
     this.#element = element;
     this.#options = options;
+    const code = options.code ?? {};
+    this.#codeOptions = { lineNumbersFrom: code.lineNumbersFrom ?? 1, collapseAfter: code.collapseAfter, codeRendering: options.codeRendering, gpu: this.#gpu };
     element.classList.add('markit');
+    // The element's own realm: jsdom rejects another realm's AbortSignal.
+    this.#listeners = new (element.ownerDocument.defaultView?.AbortController ?? AbortController)();
     this.#engine = engineFor(options);
     this.#stream = this.#engine.stream();
     const signal = this.#listeners.signal;
@@ -141,6 +86,7 @@ export class MarkitRenderer {
     this.#queued = undefined;
     try {
       const patch = await this.#renderPatch(job.source, job.finalized);
+      if (this.#destroyed) throw new Error('Renderer disposed');
       for (const block of patch.blocks) {
         for (const code of block.codes ?? []) {
           if (typeof code.source !== 'string') code.source = job.source.slice(code.start, code.end);
@@ -148,109 +94,100 @@ export class MarkitRenderer {
       }
       this.#html.splice(patch.replace_from, this.#html.length - patch.replace_from, ...patch.blocks);
       this.#dirty = Math.min(this.#dirty, patch.replace_from);
-      if (job.revision === this.#revision) {
-        this.#apply({ replace_from: this.#dirty, blocks: this.#html.slice(this.#dirty) });
-        this.#dirty = Infinity;
-      }
-      job.resolve({ ...patch, blocks: patch.blocks.map(block => block.html), superseded: job.revision !== this.#revision });
+      this.#ready.push({ job, patch });
+      this.#cancelFrame ??= scheduleFrame(this.#element.ownerDocument, () => this.#flush());
     } catch (error) { job.reject(error); }
     finally { this.#running = false; this.#drain(); }
+  }
+  /** Applies every patch finished since the last frame, then settles their promises.
+   * The newest result is what the DOM shows; earlier ones in the frame were superseded. */
+  #flush() {
+    this.#cancelFrame = undefined;
+    if (this.#destroyed) return;
+    const ready = this.#ready;
+    this.#ready = [];
+    if (this.#dirty !== Infinity) { const from = this.#dirty; this.#dirty = Infinity; this.#apply(from); }
+    const last = ready.at(-1);
+    for (const entry of ready) {
+      const { job, patch } = entry;
+      job.resolve({ ...patch, blocks: patch.blocks.map(block => block.html), superseded: entry !== last });
+    }
   }
   async highlight(source, language, { grammar = false } = {}) {
     const result = await this.#rpc('highlight', { source, language, grammar });
     return grammar ? result : unpackHighlight(source, result);
   }
-  #apply(patch) {
-    if (this.#destroyed) return;
-    let from = patch.replace_from, blocks = patch.blocks;
-    const open = this.#element.children[from];
-    if (open && blocks.length && this.#grow(open, blocks[0])) { from++; blocks = blocks.slice(1); }
-    while (this.#element.children.length > from) {
-      const block = this.#element.lastElementChild;
-      for (const pre of block.querySelectorAll('pre')) {
-        this.#gpuViews.get(pre)?.destroy(); this.#gpuViews.delete(pre);
+  /** Brings blocks from `from` in line with `#html`. Existing blocks are updated in
+   * place (the open block keeps its element); only missing ones are created. */
+  #apply(from) {
+    const root = this.#element, doc = root.ownerDocument, html = this.#html, added = [];
+    let block = root.children[from], index = from;
+    for (; index < html.length && block; index++) {
+      const next = block.nextElementSibling;
+      this.#update(block, html[index], added);
+      block = next;
+    }
+    while (root.children.length > html.length) { const stale = root.lastElementChild; stale.remove(); this.#release(stale); }
+    if (index < html.length) {
+      const fragment = doc.createDocumentFragment();
+      for (; index < html.length; index++) {
+        const node = doc.createElement('div');
+        node.className = 'mk-block';
+        node.innerHTML = html[index].html;
+        this.#payloads.set(node, html[index]);
+        fragment.append(node);
+        added.push(node);
       }
-      for (const image of block.querySelectorAll('img')) {
-        this.#imageJobs.get(image)?.abort(); this.#imageJobs.delete(image);
-        const url = this.#urls.get(image);
-        if (url) { URL.revokeObjectURL(url); this.#urls.delete(image); }
-      }
-      block.remove();
+      root.append(fragment);
     }
-    const fragment = document.createDocumentFragment();
-    for (const payload of blocks) {
-      const block = document.createElement('div');
-      block.className = 'mk-block';
-      block.innerHTML = payload.html;
-      this.#payloads.set(block, payload);
-      for (const section of block.querySelectorAll('.mk-codeblock')) this.#prepareCode(section, payload.codes?.[Number(section.dataset.markitCode)]);
-      fragment.append(block);
-    }
-    this.#element.append(fragment);
-    if (this.#options.resolveImage) {
-      for (const image of this.#element.querySelectorAll('img[data-markit-src]:not([data-requested])')) this.#resolveImage(image);
-    }
+    for (const node of added) this.#hydrate(node);
   }
-  /** An open block whose markup is unchanged and whose code fences only changed
-   * text keeps its element; only code lines from the first changed line are rebuilt.
-   * Streaming a fence then costs the new lines, not the whole fence. */
-  #grow(block, payload) {
+  /** One block: unchanged markup only grows its code; changed markup is morphed. */
+  #update(block, payload, added) {
     const previous = this.#payloads.get(block);
-    if (!previous || previous.html !== payload.html || !payload.codes?.length) return false;
-    const sections = [...block.querySelectorAll('.mk-codeblock')];
-    if (sections.length !== payload.codes.length) return false;
-    const updates = [];
-    for (const section of sections) {
-      const index = Number(section.dataset.markitCode), before = previous.codes?.[index], after = payload.codes[index];
-      const old = this.#lines.get(section);
-      if (!before || !after || !old || typeof after.source !== 'string') return false;
-      if (before.info.language !== after.info.language || before.info.diff !== after.info.diff || before.info.file !== after.info.file) return false;
-      const next = codeLines(after.source, after.ranges, after.info.diff);
-      if (next.length > 400) return false;
-      updates.push([section, old, next, after.source]);
-    }
-    for (const [section, old, next, source] of updates) {
-      const code = section.querySelector('code');
-      const keep = firstChangedLine(old, next);
-      while (code.children.length > keep) code.lastElementChild.remove();
-      if (keep < next.length) code.append(...next.slice(keep, next.length));
-      this.#lines.set(section, next); this.#code.set(section, source);
-    }
+    if (previous === payload) return;
     this.#payloads.set(block, payload);
+    if (previous?.html === payload.html) {
+      for (const section of block.querySelectorAll(SECTIONS)) {
+        if (this.#keepCode(section, section, payload)) continue;
+        const fresh = section.cloneNode(false);
+        section.replaceWith(fresh); this.#release(section); added.push(fresh);
+      }
+      return;
+    }
+    const template = block.ownerDocument.createElement('template');
+    template.innerHTML = payload.html;
+    morphChildren(block, template.content, {
+      code: (live, wanted) => this.#keepCode(live, wanted, payload),
+      added: node => added.push(node),
+      removed: node => this.#release(node),
+    });
+  }
+  /** Keeps a live code section when its fence only grew. */
+  #keepCode(live, wanted, payload) {
+    const index = wanted.dataset.markitCode;
+    if (!this.#views.get(live)?.grow(payload.codes?.[Number(index)])) return false;
+    if (live.dataset.markitCode !== index) live.dataset.markitCode = index;
     return true;
   }
-  #prepareCode(section, payload) {
-    let rows = payload ? prepareCode(section, payload) : null;
-    const code = section.querySelector('code');
-    this.#code.set(section, payload?.source ?? code.textContent);
-    if (rows && rows.length <= 400) this.#lines.set(section, rows);
-    rows ??= [...code.children];
-    if (rows.length <= 400) { code.replaceChildren(...rows.slice(0, rows.length)); return; }
-    const pre = section.querySelector('pre');
-    pre.dataset.markitBackend = 'dom';
-    pre.classList.add('mk-virtual-code');
-    const lineHeight = 22;
-    const top = document.createElement('span'); const bottom = document.createElement('span');
-    top.className = bottom.className = 'mk-spacer';
-    code.style.minWidth = `${Math.min(4096, (rows.width ?? Math.max(...rows.map(row => row.textContent.length))) + 7)}ch`;
-    const update = () => {
-      const first = Math.max(0, Math.floor(pre.scrollTop / lineHeight) - 8);
-      const last = Math.min(rows.length, first + Math.ceil((pre.clientHeight || 320) / lineHeight) + 16);
-      top.style.height = `${first * lineHeight}px`; bottom.style.height = `${(rows.length - last) * lineHeight}px`;
-      code.replaceChildren(top, ...rows.slice(first, last), bottom);
-    };
-    pre.addEventListener('scroll', update, { passive: true }); update();
-    // Automatic GPU selection remains disabled until rendering benchmarks show
-    // a benefit. Hosts can explicitly request it for large source views.
-    if (this.#options.codeRendering === 'webgpu') {
-      queueMicrotask(() => {
-        if (this.#destroyed || !pre.isConnected) return;
-        this.#gpu.attach(pre, Array.isArray(rows) ? rows : rows.slice(0, rows.length), next => { rows = next; update(); }, () => this.#gpuViews.delete(pre)).then(view => {
-          if (!view || view.disposed) return;
-          if (this.#destroyed || !pre.isConnected) view.destroy();
-          else this.#gpuViews.set(pre,view);
-        });
-      });
+  /** Builds code views and requests images inside newly inserted nodes. */
+  #hydrate(node) {
+    if (node.nodeType !== 1) return;
+    const payload = this.#payloads.get(node.closest('.mk-block'));
+    for (const section of within(node, SECTIONS)) {
+      this.#views.set(section, new CodeView(section, payload?.codes?.[Number(section.dataset.markitCode)], this.#codeOptions));
+    }
+    if (!this.#options.resolveImage) return;
+    for (const image of within(node, 'img[data-markit-src]')) if (!image.dataset.requested) this.#resolveImage(image);
+  }
+  /** Frees what a removed node owns: code views (and their GPU views), image jobs and object URLs. */
+  #release(node) {
+    if (node.nodeType !== 1) return;
+    for (const section of within(node, SECTIONS)) { this.#views.get(section)?.destroy(); this.#views.delete(section); }
+    for (const image of within(node, 'img')) {
+      this.#imageJobs.get(image)?.abort(); this.#imageJobs.delete(image);
+      const url = this.#urls.get(image);
+      if (url) { URL.revokeObjectURL(url); this.#urls.delete(image); }
     }
   }
   async #resolveImage(image) {
@@ -267,11 +204,14 @@ export class MarkitRenderer {
     finally { this.#imageJobs.delete(image); }
   }
   async #activate(event) {
+    const toggle = event.target.closest('[data-markit-toggle]');
+    if (toggle) { this.#views.get(toggle.closest(SECTIONS))?.toggle(); return; }
     const button = event.target.closest('[data-markit-copy]');
     if (button) {
+      const view = this.#views.get(button.closest(SECTIONS));
       try {
-        await navigator.clipboard.writeText(this.#code.get(button.closest('.mk-codeblock')) ?? '');
-        button.textContent = 'Copied'; button.setAttribute('aria-label', 'Copied');
+        await navigator.clipboard.writeText(view?.source ?? '');
+        view?.copied();
       } catch (error) { this.#options.onError?.(error); }
       return;
     }
@@ -291,7 +231,11 @@ export class MarkitRenderer {
     this.#destroyed = true; this.#listeners.abort();
     this.#engine.release(this, this.#stream);
     if (!this.#engine.shared) this.#engine.terminate();
-    this.#gpu.destroy(); this.#gpuViews.clear();
+    this.#cancelFrame?.(); this.#cancelFrame = undefined;
+    for (const { job } of this.#ready) job.reject(new Error('Renderer disposed'));
+    this.#ready = [];
+    this.#release(this.#element);
+    this.#gpu.destroy();
     this.#queued?.reject(new Error('Renderer disposed')); this.#queued = undefined;
     for (const job of this.#imageJobs.values()) job.abort(); this.#imageJobs.clear();
     for (const url of this.#urls.values()) URL.revokeObjectURL(url); this.#urls.clear();

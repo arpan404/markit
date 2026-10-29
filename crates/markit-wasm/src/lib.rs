@@ -21,6 +21,12 @@ pub fn highlight_code_packed(source: &str, language: &str) -> Vec<u32> {
     markit::highlight_packed(source, language)
 }
 
+/// Diff fence rows: `[additions, deletions]`, then `kind, old + 1, new + 1` per line.
+#[wasm_bindgen(js_name = diffRows)]
+pub fn diff_rows(source: &str) -> Vec<u32> {
+    markit::diff_rows_packed(source)
+}
+
 #[wasm_bindgen]
 pub struct MarkdownStream {
     inner: markit::StreamRenderer,

@@ -11,13 +11,14 @@ import { MarkitRenderer } from './web/index.js';
 const renderer = new MarkitRenderer(document.querySelector('#preview'), {
   onReference: ({ kind, target }) => openAppReference(kind, target),
   resolveImage: (url, alt, signal) => authorizedAttachmentBytes(url, signal),
+  code: { lineNumbersFrom: 10, collapseAfter: 20 },
 });
 await renderer.render('# Hello\n\n**Rendered by Rust.**');
 await renderer.render(growingMessage, { finalized: false });
 renderer.destroy();
 ```
 
-Parsing and highlighting run in a worker (one active render, one queued). Serve the demo with `npm --prefix web run serve` after building Wasm.
+Parsing and highlighting run in a worker (one active render, one queued); results reach the DOM at most once per frame, and the open block updates in place. Without `Worker` (Node, jsdom) or with `worker: 'inline'`, the same Wasm runs in-process: pass its bytes as `wasm`. Serve the demo with `npm --prefix web run serve` after building Wasm.
 
 ## iOS
 

@@ -3,7 +3,8 @@ mod fixture;
 
 #[test]
 fn append_patch_bytes_match_baseline_for_fences_references_tables_and_math() {
-    // Golden FNV-1a of every serialized patch at 6e578a9. Includes replace
+    // Golden FNV-1a of every serialized patch (HTML fence chrome updated on
+    // ace/web-runtime: diff rows, header stats). Includes replace
     // offsets, omitted fields, span order, HTML bytes and native PNG bytes.
     // Exercise all three output modes, including partial lines and closers.
     let mut hash = 0xcbf29ce484222325u64;
@@ -23,5 +24,5 @@ fn append_patch_bytes_match_baseline_for_fences_references_tables_and_math() {
             }
         }
     }
-    assert_eq!(hash, 0x62934f069ba14d79);
+    assert_eq!(hash, 0xc3eb56423c383b41);
 }
