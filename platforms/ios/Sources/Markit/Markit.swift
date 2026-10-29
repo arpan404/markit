@@ -73,10 +73,24 @@ public enum MarkitFlavor: UInt32, Sendable {
     case standard = 0
     case github = 1
 }
+/// A link into the host's world. `kind` is `file`, `thread` or `pull_request`
+/// from agent prose; the GitHub flavour adds `mention` (`login` or
+/// `org/team`), `issue` (`#123` or `owner/repo#123`), `commit` (a SHA or
+/// `owner/repo@sha`) and, in inline views, `footnote` (the footnote's label).
 public struct MarkitReference: Sendable, Equatable {
     public let kind: String
     public let target: String
     public init(kind: String, target: String) { self.kind = kind; self.target = target }
+}
+/// A GitHub-flavour task box the reader tapped. `offset` is the UTF-16 index
+/// of the character inside its `[ ]` in the Markdown source, so the host
+/// rewrites exactly that character (`" "` or `"x"`); `index` is the box's
+/// order and `checked` is the state the reader asked for.
+public struct MarkitTask: Sendable, Equatable {
+    public let index: Int
+    public let offset: Int
+    public let checked: Bool
+    public init(index: Int, offset: Int, checked: Bool) { self.index = index; self.offset = offset; self.checked = checked }
 }
 public struct MarkitPatch: Decodable, Sendable {
     public struct Block: Decodable, Sendable { public let document: MarkitDocument }

@@ -36,6 +36,14 @@ final class InlinePlannerTests: XCTestCase {
         ])
     }
 
+    func testClosedDiagramFenceIsPlannedAsADiagramWithItsSource() throws {
+        let document = try Markit.parse("Before\n\n```mermaid\ngraph TD; A-->B\n```\n", flavor: .github)
+        let kinds = InlinePlanner.plan(document, index: 0).map(\.kind)
+        XCTAssertEqual(kinds, [.text, .diagram(language: "mermaid", source: "graph TD; A-->B\n")])
+        let standard = try Markit.parse("```mermaid\ngraph TD; A-->B\n```\n")
+        XCTAssertEqual(InlinePlanner.plan(standard, index: 0).map(\.kind), [.code])
+    }
+
     func testUnknownBlockKindsRenderAsText() throws {
         let document = try makeDocument(#"{"version":2,"text":"graph TD","spans":[{"start":0,"end":8,"kind":"diagram"}],"blocks":[{"start":0,"end":8,"kind":"diagram"}]}"#)
         XCTAssertEqual(InlinePlanner.plan(document, index: 0).map(\.kind), [.text])

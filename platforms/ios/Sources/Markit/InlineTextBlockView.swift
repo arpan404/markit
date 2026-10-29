@@ -5,7 +5,8 @@ import UIKit
 /// piece of a long root), with math attachments, links and quote bars.
 final class InlineTextBlockView: InlineBlockView, UITextViewDelegate {
     private let text: InlineTextStack
-    private var quotes: [(range: NSRange, depth: Int)] = []
+    /// Quote bars; a GitHub alert's bar takes its accent instead of `quoteBar`.
+    private var quotes: [(range: NSRange, depth: Int, color: UIColor?)] = []
     private var bars: [UIView] = []
     private lazy var tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
 
@@ -26,11 +27,15 @@ final class InlineTextBlockView: InlineBlockView, UITextViewDelegate {
         // Selection also enables UITextView's own link taps; without it, a tap recognizer handles links.
         text.view.isSelectable = selectable
         if selectable { text.view.removeGestureRecognizer(tap) } else if tap.view == nil { text.view.addGestureRecognizer(tap) }
+        let alerts = document.spans.filter { $0.kind == "alert" }
+        let palette = theme
         quotes = document.spans.compactMap { span in
             guard span.kind == "quote" else { return nil }
             let clipped = NSIntersectionRange(span.range, plan.range)
             guard clipped.length > 0 else { return nil }
-            return (range: NSRange(location: clipped.location - plan.range.location, length: clipped.length), depth: span.depth ?? 1)
+            let alert = alerts.first { $0.start == span.start && $0.end == span.end }?.alert
+            return (range: NSRange(location: clipped.location - plan.range.location, length: clipped.length), depth: span.depth ?? 1,
+                    color: alert.flatMap { palette.alertColor(for: $0) })
         }
         text.view.accessibilityValue = spokenText(content)
         super.contentDidChange()
@@ -58,7 +63,7 @@ final class InlineTextBlockView: InlineBlockView, UITextViewDelegate {
                 bars.append(bar)
             }
             let bar = bars[used]
-            bar.backgroundColor = theme.quoteBar
+            bar.backgroundColor = quote.color ?? theme.quoteBar
             bar.isHidden = false
             bar.frame = CGRect(x: CGFloat(quote.depth - 1) * theme.quoteIndent + 2, y: rect.minY,
                                width: theme.quoteBarWidth, height: rect.height)
@@ -85,6 +90,15 @@ final class InlineTextBlockView: InlineBlockView, UITextViewDelegate {
         return spoken
     }
 
+    /// Bounds, in this view, of a range of the document this block shows; nil when outside it.
+    func rect(forDocumentRange range: NSRange) -> CGRect? {
+        let clipped = NSIntersectionRange(range, plan.range)
+        guard clipped.length > 0 else { return nil }
+        text.layout.ensureLayout(for: text.container)
+        return text.rect(for: NSRange(location: clipped.location - plan.range.location, length: clipped.length))
+            .map { text.view.convert($0, to: self) }
+    }
+
     @objc private func tapped(_ recognizer: UITapGestureRecognizer) {
         guard let link = text.link(at: recognizer.location(in: text.view)) else { return }
         _ = host?.open(link.url, attributes: link.attributes)
@@ -93,7 +107,8 @@ final class InlineTextBlockView: InlineBlockView, UITextViewDelegate {
     func textView(_ textView: UITextView, shouldInteractWith url: URL, in characterRange: NSRange,
                   interaction: UITextItemInteraction) -> Bool {
         let attributes = textView.attributedText.attributes(at: characterRange.location, effectiveRange: nil)
-        guard interaction == .invokeDefaultAction else { return attributes[.markitReference] == nil }
+        // Previews and menus are for real links, not references or task boxes.
+        guard interaction == .invokeDefaultAction else { return attributes[.markitReference] == nil && attributes[.markitTaskOffset] == nil }
         return host?.open(url, attributes: attributes) ?? false
     }
 }

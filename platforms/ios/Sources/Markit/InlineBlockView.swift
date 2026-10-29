@@ -12,6 +12,10 @@ import UIKit
     /// Handles a tapped link. True lets the text view open it.
     func open(_ url: URL, attributes: [NSAttributedString.Key: Any]) -> Bool
     func loadImage(_ url: String) async -> UIImage?
+    /// Whether the host draws diagrams; when false they stay code blocks.
+    var drawsDiagrams: Bool { get }
+    /// The host's drawing of a diagram, or nil to keep the code block.
+    func drawDiagram(language: String, source: String) async -> UIView?
 }
 
 /// One block in a `MarkitInlineView`. Heights are cached per width, so a

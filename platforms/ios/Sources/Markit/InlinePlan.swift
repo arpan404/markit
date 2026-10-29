@@ -5,6 +5,8 @@ struct InlineBlockPlan: Equatable {
     enum Kind: Equatable {
         case text, code, table, rule
         case image(url: String)
+        /// A closed GitHub-flavour diagram fence: the host may draw it, else it shows as code.
+        case diagram(language: String, source: String)
     }
     /// Index of the stream document (top-level root) this view shows.
     let document: Int
@@ -41,7 +43,9 @@ enum InlinePlanner {
             let range = trimmingNewlines(clipped, in: text)
             switch block.kind {
             case "code":
-                result.append(InlineBlockPlan(document: index, range: range, kind: .code, depth: depth(of: range, in: document), continuation: false))
+                let diagram = document.spans.first { $0.kind == "diagram" && $0.start <= range.location && $0.end >= NSMaxRange(range) }
+                let kind = diagram.map { InlineBlockPlan.Kind.diagram(language: $0.language ?? "", source: $0.source ?? "") } ?? .code
+                result.append(InlineBlockPlan(document: index, range: range, kind: kind, depth: depth(of: range, in: document), continuation: false))
             case "table":
                 guard range.length > 0 else { continue }
                 result.append(InlineBlockPlan(document: index, range: range, kind: .table, depth: depth(of: range, in: document), continuation: false))

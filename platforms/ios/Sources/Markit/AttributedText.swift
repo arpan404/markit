@@ -8,6 +8,23 @@ extension NSAttributedString.Key {
     public static var markitReference: NSAttributedString.Key { NSAttributedString.Key("dev.markit.reference") }
     /// Kind of an app reference run.
     public static var markitReferenceKind: NSAttributedString.Key { NSAttributedString.Key("dev.markit.reference.kind") }
+    /// GitHub flavour: the alert kind (`note`, `warning`, ...) over an alert.
+    public static var markitAlert: NSAttributedString.Key { NSAttributedString.Key("dev.markit.alert") }
+    /// GitHub flavour, on a task box glyph that the host can tick: its
+    /// source offset (NSNumber); `markitTaskIndex` and `markitTaskChecked` go with it.
+    static var markitTaskOffset: NSAttributedString.Key { NSAttributedString.Key("dev.markit.task.offset") }
+    static var markitTaskIndex: NSAttributedString.Key { NSAttributedString.Key("dev.markit.task.index") }
+    static var markitTaskChecked: NSAttributedString.Key { NSAttributedString.Key("dev.markit.task.checked") }
+}
+
+extension MarkitTask {
+    /// The tapped task that `attributes` (a task glyph's) asks for, ticking or clearing it.
+    init?(toggling attributes: [NSAttributedString.Key: Any]) {
+        guard let offset = attributes[.markitTaskOffset] as? NSNumber else { return nil }
+        let index = (attributes[.markitTaskIndex] as? NSNumber)?.intValue ?? 0
+        let checked = (attributes[.markitTaskChecked] as? NSNumber)?.boolValue ?? false
+        self.init(index: index, offset: offset.intValue, checked: !checked)
+    }
 }
 extension UIColor {
     convenience init(markitHex value: String) {
@@ -25,6 +42,8 @@ struct MarkitStyler {
     let traits: UITraitCollection?
     /// Diff lines tint the glyph background. Views that draw full-width bands turn this off.
     var diffBackgrounds = true
+    /// GitHub task glyphs become tappable links (the host set `onTask`).
+    var tasksEnabled = false
     let body: UIFont
     let monospace: UIFont
     let table: UIFont
@@ -51,6 +70,16 @@ struct MarkitStyler {
         for span in spans {
             let clipped = NSIntersectionRange(span.range, safeRange)
             apply(span, to: output, at: NSRange(location: clipped.location - safeRange.location, length: clipped.length))
+        }
+        // An alert's title line takes its accent over the quote's colour; only where the alert starts.
+        for span in spans where span.kind == "alert" && span.start >= safeRange.location {
+            let clipped = NSIntersectionRange(span.range, safeRange)
+            alertTitle(span, in: output, at: NSRange(location: clipped.location - safeRange.location, length: clipped.length))
+        }
+        // Superscripts shrink whatever font their run ended up with.
+        for span in spans where span.kind == "footnote_reference" || (span.kind == "html" && (span.tag == "sup" || span.tag == "sub")) {
+            let clipped = NSIntersectionRange(span.range, safeRange)
+            shift(NSRange(location: clipped.location - safeRange.location, length: clipped.length), in: output, up: span.tag != "sub")
         }
         // Font traits compose after base fonts, regardless of equal span boundaries.
         for span in spans where span.kind == "strong" || span.kind == "emphasis" || span.kind == "table_header" {
@@ -99,9 +128,60 @@ struct MarkitStyler {
             output.addAttribute(.backgroundColor, value: color, range: local)
         case "math":
             attachMath(span, to: output, at: local)
+        case "alert":
+            if let kind = span.alert { output.addAttribute(.markitAlert, value: kind, range: local) }
+        case "footnote_reference":
+            // A reference of kind `footnote`: hosts get it through `onReference`.
+            let reference = MarkitReference(kind: "footnote", target: span.label ?? String(span.number ?? 0))
+            output.addAttributes([.link: reference.url, .markitReference: reference.target, .markitReferenceKind: reference.kind], range: local)
+            if let color = theme.linkColor { output.addAttribute(.foregroundColor, value: color, range: local) }
+        case "footnote_definition":
+            output.addAttributes([.font: theme.footnoteFont.font(compatibleWith: traits), .foregroundColor: theme.secondaryTextColor], range: local)
+        case "task":
+            task(span, in: output, at: local)
+        case "html":
+            if span.tag == "u" || span.tag == "ins" { output.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: local) }
         default:
             // Unknown and structural kinds (paragraph, rule, table_cell, image...) keep body text.
             break
+        }
+    }
+
+    /// The title line (the alert's first line) takes the alert's accent.
+    private func alertTitle(_ span: MarkitSpan, in output: NSMutableAttributedString, at local: NSRange) {
+        guard let color = span.alert.flatMap({ theme.alertColor(for: $0) }) else { return }
+        let text = output.string as NSString
+        let newline = text.range(of: "\n", options: .literal, range: local)
+        let title = newline.location == NSNotFound ? local : NSRange(location: local.location, length: newline.location - local.location)
+        output.addAttribute(.foregroundColor, value: color, range: title)
+    }
+
+    /// The box glyph (the span's first character). Tappable only when the host ticks boxes.
+    private func task(_ span: MarkitSpan, in output: NSMutableAttributedString, at local: NSRange) {
+        guard local.length > 0 else { return }
+        let glyph = (output.string as NSString).rangeOfComposedCharacterSequence(at: local.location)
+        guard tasksEnabled, let offset = span.offset,
+              let url = URL(string: "markit-task://toggle/\(span.index ?? 0)") else {
+            output.addAttribute(.foregroundColor, value: theme.secondaryTextColor, range: glyph)
+            return
+        }
+        output.addAttributes([
+            .link: url,
+            .markitTaskOffset: NSNumber(value: offset),
+            .markitTaskIndex: NSNumber(value: span.index ?? 0),
+            .markitTaskChecked: NSNumber(value: span.checked ?? false),
+        ], range: glyph)
+    }
+
+    /// Raises (or lowers) a run as a smaller superscript (or subscript).
+    private func shift(_ local: NSRange, in output: NSMutableAttributedString, up: Bool) {
+        let fallback = body
+        output.enumerateAttribute(.font, in: local) { value, subrange, _ in
+            let font = value as? UIFont ?? fallback
+            output.addAttributes([
+                .font: font.withSize(font.pointSize * 0.75),
+                .baselineOffset: font.pointSize * (up ? 0.35 : -0.15),
+            ], range: subrange)
         }
     }
 

@@ -87,6 +87,21 @@ view.render(text, finalized: done)
 - Dynamic Type and appearance changes restyle every block. Unknown block or span kinds render as plain text.
 - On iOS 16+ `MarkitInline` sizes through `sizeThatFits`; on iOS 15 it applies the height the view reports after its first layout.
 
+GitHub bodies (PRs, issues, comments) take `flavor: .github` (changing `flavor` renders the current text again):
+
+```swift
+MarkitInline(markdown: body, flavor: .github,
+             onReference: { reference in open(reference.kind, reference.target) },   // mention, issue, commit, footnote
+             onTask: { task in save(body.replacingTask(at: task.offset, checked: task.checked)) },
+             renderDiagram: { language, source in await diagrams.view(language, source) })
+```
+
+- Alerts (`> [!NOTE]` …) draw their title and quote bar in `theme.alertNote`/`alertTip`/`alertImportant`/`alertWarning`/`alertCaution`.
+- Footnote references are small superscript links delivered to `onReference` as kind `footnote` (target: the label); without `onReference` a tap scrolls the enclosing scroll view to the note and announces it. Notes follow a rule in `theme.footnoteFont`.
+- Task boxes (`☐`/`☑`) are tappable only while `onTask` is set. `MarkitTask.offset` is the UTF-16 index of the character inside `[ ]` and `checked` is the state the reader asked for; the host rewrites that character and renders again.
+- A closed diagram fence calls `renderDiagram(language, source)` once per source; the view it returns replaces the code block at its own height (intrinsic size, Auto Layout or `sizeThatFits`), and `nil` keeps the code block. A fence still streaming is always code.
+- `@mention`, `#123` and commit references reach `onReference` with kinds `mention`, `issue` and `commit`. `MarkitView`/`MarkitText` take `flavor` and `onTask` too and draw the same text styling; diagrams there stay code.
+
 ### Themes
 
 `MarkitTheme` holds body, heading (levels 1–6), monospace, table and caption fonts (`MarkitFont`: a text style, a font scaled with `UIFontMetrics`, or a fixed font), text/secondary/link colours, code background, header and border, quote bar, table border and header, diff tints, the eight-class syntax palette (`MarkitColorPair` light/dark), indents and spacing. `MarkitTheme.standard` is the built-in look. Keep one theme value per appearance (for example a `static let`); views restyle only when the theme compares unequal.
@@ -136,7 +151,7 @@ The default flavour renders agent prose: raw HTML is shown as text and nothing b
 | Wasm | `renderHtmlFlavor(source, 'github')`, `renderDocumentFlavor`, `MarkdownStream.webFlavor('github')` |
 | Web | `new MarkitRenderer(element, { flavor: 'github', onTask, resolveMedia, renderDiagram })` |
 | C | `markit_render_flavor(source, len, format, MARKIT_FLAVOR_GITHUB)`, `markit_render_binary_flavor`, `markit_stream_new_flavor` |
-| Swift | `Markit.parse(source, flavor: .github)`, `MarkitBinaryPlan.parse(source, flavor: .github)`, `MarkitStream(flavor: .github)` |
+| Swift | `Markit.parse(source, flavor: .github)`, `MarkitBinaryPlan.parse(source, flavor: .github)`, `MarkitStream(flavor: .github)`, `MarkitInlineView(flavor: .github)` / `MarkitInline(markdown:flavor:…onTask:renderDiagram:)`, `MarkitView.flavor` / `MarkitText(_:flavor:onTask:)` |
 | Kotlin | `Markit.parse(source, MarkitFlavor.GITHUB)`, `MarkitStream(MarkitFlavor.GITHUB)`, `MarkitView.flavor` |
 
 What it adds, in HTML and in native spans:

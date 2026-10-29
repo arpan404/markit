@@ -5,7 +5,22 @@ import UIKit
 /// images in the host. This view never fetches URLs or creates a WebView.
 @MainActor public final class MarkitView: UIView, UITableViewDataSource, UITextViewDelegate {
     public var onLink: ((URL) -> Void)?
+    /// App references; in the GitHub flavour also `mention`, `issue`, `commit` and `footnote`.
     public var onReference: ((MarkitReference) -> Void)?
+    /// GitHub flavour: a task box was tapped. Boxes are tappable only while this is set.
+    public var onTask: ((MarkitTask) -> Void)? {
+        didSet { if (oldValue == nil) != (onTask == nil) { table.reloadData() } }
+    }
+    /// The dialect of the Markdown. Changing it renders the current text again.
+    public var flavor: MarkitFlavor = .standard {
+        didSet {
+            guard oldValue != flavor else { return }
+            worker = RenderWorker(flavor: flavor)
+            guard let source = previous else { return }
+            previous = nil
+            render(source, finalized: finalized)
+        }
+    }
     public var resolveImage: ((String) -> UIImage?)?
     public var onError: ((Error) -> Void)?
     /// Fonts, colours and spacing. Keep one value per appearance in the host.
@@ -13,7 +28,7 @@ import UIKit
         didSet { if oldValue != theme { table.reloadData() } }
     }
     private let table = UITableView(frame: .zero, style: .plain)
-    private let worker = RenderWorker()
+    private var worker = RenderWorker()
     private var generation = 0
     private var previous: String?
     private var finalized = true
@@ -95,7 +110,9 @@ import UIKit
             let text = CopyTextView(); text.isEditable = false; text.isScrollEnabled = false; text.delegate = self
             text.backgroundColor = .clear; text.textContainerInset = .zero; text.textContainer.lineFragmentPadding = 0
             text.adjustsFontForContentSizeCategory = true
-            text.attributedText = MarkitStyler(theme: theme, traits: traitCollection).attributed(row.document, range: row.range)
+            var styler = MarkitStyler(theme: theme, traits: traitCollection)
+            styler.tasksEnabled = onTask != nil
+            text.attributedText = styler.attributed(row.document, range: row.range)
             stack.addArrangedSubview(text)
             for span in row.document.spans where span.kind == "image" && NSIntersectionRange(span.range, row.range).length > 0 {
                 if let url = span.url, let image = resolveImage?(url) {
@@ -111,6 +128,10 @@ import UIKit
         return cell
     }
     public func textView(_ textView: UITextView, shouldInteractWith URL: URL, in characterRange: NSRange, interaction: UITextItemInteraction) -> Bool {
+        if let task = MarkitTask(toggling: textView.attributedText.attributes(at: characterRange.location, effectiveRange: nil)) {
+            if interaction == .invokeDefaultAction { onTask?(task) }
+            return false
+        }
         if let target = textView.attributedText.attribute(.markitReference, at: characterRange.location, effectiveRange: nil) as? String {
             let kind = textView.attributedText.attribute(.markitReferenceKind, at: characterRange.location, effectiveRange: nil) as? String ?? "file"
             onReference?(MarkitReference(kind: kind, target: target)); return false

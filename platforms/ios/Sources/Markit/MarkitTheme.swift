@@ -18,6 +18,8 @@ public struct MarkitTheme: Equatable, @unchecked Sendable {
     public var monospaceFont: MarkitFont = .scaled(.monospacedSystemFont(ofSize: 13, weight: .regular))
     /// Table text.
     public var tableFont: MarkitFont = .scaled(.monospacedSystemFont(ofSize: 13, weight: .regular))
+    /// GitHub footnote definitions under the document.
+    public var footnoteFont: MarkitFont = .textStyle(.footnote)
     /// Code block headers and collapse controls.
     public var captionFont: MarkitFont = .textStyle(.caption1)
 
@@ -37,6 +39,12 @@ public struct MarkitTheme: Equatable, @unchecked Sendable {
     public var ruleColor: UIColor = .separator
     public var diffAddition: UIColor = UIColor.systemGreen.withAlphaComponent(0.12)
     public var diffDeletion: UIColor = UIColor.systemRed.withAlphaComponent(0.12)
+    /// GitHub alert accents (`> [!NOTE]` ...): the title and the quote bar.
+    public var alertNote: UIColor = .systemBlue
+    public var alertTip: UIColor = .systemGreen
+    public var alertImportant: UIColor = .systemPurple
+    public var alertWarning: UIColor = .systemOrange
+    public var alertCaution: UIColor = .systemRed
     /// Replaces the renderer's eight syntax classes, in `defaultSyntaxPalette` order.
     public var syntaxPalette: [MarkitColorPair] = MarkitColorPair.defaultSyntaxPalette
     /// Colour for syntax runs that carry no colour.
@@ -67,6 +75,19 @@ public struct MarkitTheme: Equatable, @unchecked Sendable {
 
     /// The built-in look.
     public static let standard = MarkitTheme()
+
+    /// Accent of a GitHub alert kind (`note`, `tip`, `important`, `warning`,
+    /// `caution`); nil for any other kind.
+    public func alertColor(for kind: String) -> UIColor? {
+        switch kind {
+        case "note": return alertNote
+        case "tip": return alertTip
+        case "important": return alertImportant
+        case "warning": return alertWarning
+        case "caution": return alertCaution
+        default: return nil
+        }
+    }
 
     func headingFont(level: Int) -> MarkitFont {
         guard let last = headingFonts.last else { return bodyFont }
