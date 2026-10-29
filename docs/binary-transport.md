@@ -122,7 +122,7 @@ MAP
 swiftc -I target/binary-swift/CMarkit -L target/debug -lmarkit_ffi \
   -Xlinker -rpath -Xlinker "$PWD/target/debug" \
   platforms/ios/Sources/Markit/Markit.swift \
-  platforms/ios/Sources/Markit/BinaryPlan.swift benchmarks/binary-reader.swift \
+  platforms/ios/Sources/Markit/BinaryPlan.swift \
   -o target/binary-swift/check
 target/binary-swift/check
 ```

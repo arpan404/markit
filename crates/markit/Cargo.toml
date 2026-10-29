@@ -38,11 +38,6 @@ grammars = ["dep:syntect", "dep:two-face"]
 name = "profile_highlight"
 required-features = ["grammars"]
 
-[[bench]]
-name = "features"
-path = "../../benchmarks/native-features.rs"
-harness = false
-
 [[example]]
 name = "grammar_incremental"
 required-features = ["grammars"]

@@ -17,6 +17,8 @@ impl FastHasher {
     }
 }
 impl Hasher for FastHasher {
+    // `as_chunks` needs Rust 1.83+; `chunks_exact` + `remainder` covers older toolchains.
+    #[allow(clippy::chunks_exact_to_as_chunks)]
     fn write(&mut self, bytes: &[u8]) {
         let mut chunks = bytes.chunks_exact(8);
         for chunk in &mut chunks {

@@ -1,103 +1,90 @@
 # Markit
 
-A shared Rust Markdown renderer with UIKit/SwiftUI views for iOS, native Android views, and a WebAssembly worker for the web. Native clients use text, image, table, and list views. They do not run HTML in a WebView.
+Shared Rust Markdown engine for iOS, Android, and web. Parses once, renders native text ranges or HTML. No WebView.
 
-Includes CommonMark, tables, task lists, nested quotes/lists, syntax highlighting, code headers and copy controls, line numbers, diff fences, inline/display math, bare links, and host callbacks for app references and attachment images.
-
-## Build
-
-Install Rust, Node, and `wasm-bindgen-cli` matching the `wasm-bindgen` version in Cargo.lock. Native builds also need Xcode or Android SDK/NDK and JDK 17. Build scripts package third-party notices with the binaries.
-
-```sh
-rustup target add wasm32-unknown-unknown aarch64-apple-ios aarch64-apple-ios-sim aarch64-linux-android x86_64-linux-android
-./scripts/build-web.sh
-./scripts/build-ios.sh
-./scripts/build-android.sh
-```
-
-The iOS script produces `platforms/ios/Artifacts/MarkitCore.xcframework` for arm64 devices and Apple Silicon simulators. Then add the local Swift package at `platforms/ios` to your app. Generate the example project with `xcodegen generate --spec examples/ios/project.yml`.
-
-The Android script uses `ANDROID_HOME` and `ANDROID_NDK_HOME` when available, with an installed-NDK fallback. It packages arm64-v8a and x86_64 libraries into `platforms/android/markit/src/main/jniLibs`. Build the AAR and example APK with:
-
-```sh
-platforms/android/gradlew -p platforms/android :markit:assembleDebug :demo:assembleDebug
-```
-
-Generated binaries are local build artifacts, not checked into Git. The packages are not published to a registry.
+Renders CommonMark, tables, task lists, quotes, code fences with copy headers, diffs, `$`/`$$` math, and bare links. Syntax colors come from a built-in lexical tokenizer; fuller Sublime grammars are opt-in. Hosts handle file references, thread links, and image bytes.
 
 ## Web
 
 ```js
 import { MarkitRenderer } from './web/index.js';
-// Also load web/style.css.
 const renderer = new MarkitRenderer(document.querySelector('#preview'), {
   onReference: ({ kind, target }) => openAppReference(kind, target),
   resolveImage: (url, alt, signal) => authorizedAttachmentBytes(url, signal),
 });
 await renderer.render('# Hello\n\n**Rendered by Rust.**');
 await renderer.render(growingMessage, { finalized: false });
-const code = await renderer.highlight(sourceFile, 'typescript');
-// Call when the owning view unmounts.
 renderer.destroy();
 ```
 
-Serve the demo with `npm --prefix web run serve` after building Wasm, then open `http://127.0.0.1:4173`. The JavaScript wrapper has no production npm dependencies. Its worker loads the generated Wasm module. There is no JavaScript Markdown-parser fallback.
+Parsing and highlighting run in a worker (one active render, one queued). Serve the demo with `npm --prefix web run serve` after building Wasm.
 
 ## iOS
 
 ```swift
-import Markit
+MarkitText(markdown, finalized: !streaming) // SwiftUI
 
-// SwiftUI, with its own scrolling viewport.
-MarkitText(markdown, finalized: !streaming)
-
-// UIKit, on the main actor.
-let view = MarkitView()
-view.onReference = { reference in openReference(reference) }
-view.resolveImage = { url in authorizedDecodedImage(url) }
+let view = MarkitView() // UIKit, main actor
+view.onReference = { openReference($0) }
+view.resolveImage = { authorizedDecodedImage($0) }
 view.render(markdown, finalized: !streaming)
-
-// These synchronous functions belong off the UI thread for large inputs.
-let document = try Markit.parse(markdown)
-let highlighted = try Markit.highlight(sourceFile, language: "swift")
 ```
 
 ## Android
 
 ```kotlin
-import dev.markit.MarkitView
-
 val view = MarkitView(context)
-view.onReference = { reference -> openReference(reference) }
-view.resolveImage = { url -> authorizedDecodedBitmap(url) }
-view.render(markdown, finalized = !streaming) // UI thread
-// Release the native stream when the screen is destroyed.
+view.onReference = { openReference(it) }
+view.resolveImage = { authorizedDecodedBitmap(it) }
+view.render(markdown, finalized = !streaming)
 view.close()
 ```
 
-Both native views render changed suffixes without rebuilding settled rows. Code lines and table rows use bounded native viewports with recycled cells. Large prose blocks split into smaller text rows. Complete source files can be displayed with `setDocument(Markit.highlight(source, language))` after highlighting off the UI thread.
+Views patch settled rows in place and recycle code/table cells. Highlight large sources off the UI thread, then `setDocument(Markit.highlight(source, language))`.
 
-## Highlighting, math, and app hooks
+## Performance
 
-The default highlighter is a linear Rust tokenizer with light/dark colors and aliases for Ace's language families. It handles comments, quoted/raw/multiline strings, keywords, numbers, functions, types, properties, and markup. It is lexical coloring, not a language compiler or a full Prism replacement.
+`cargo bench -p markit --bench throughput`, release profile, Apple Silicon:
 
-For fuller Sublime grammars, build with `MARKIT_FEATURES=grammars ./scripts/build-web.sh`, or the corresponding native script. Use web `highlight(source, language, { grammar: true })`, Swift `highlight(..., fullGrammar: true)`, or Kotlin `highlight(..., fullGrammar = true)`. Optional grammars are excluded from default binaries and can have substantial first-use cost. Markdown fences use the fast path.
+| Op | 0.26 KB | 13 KB | 104 KB |
+| --- | ---: | ---: | ---: |
+| Parse | 0.003 ms | 0.145 ms | 1.268 ms |
+| Parse + JSON | 0.005 ms | 0.229 ms | 2.727 ms |
+| HTML | 0.003 ms | 0.128 ms | 1.058 ms |
 
-Math supports `$...$`, `$$...$$`, `\(...\)`, and `\[...\]`. Rust lays out formulas with embedded STIX Two Math, emitting SVG paths for web and PNG attachments for native text. Copying restores the original TeX delimiters. Unsupported, invalid, oversized, or excessively deep formulas remain visible as source.
+13 KB, time per document (lower is better):
 
-Reference hooks recognize file paths in inline code, explicit `file://` links, `ace://thread/...` / `thread://...` links, and GitHub pull-request links. Hosts own file opening, thread navigation, PR presentation, and attachment authorization. Remote images are not fetched automatically. Web image resolvers return Blob or Uint8Array data; native resolvers return decoded UIImage/Bitmap values.
-
-See [feature coverage](docs/ace-feature-parity.md) and [integration details](docs/integration.md). Ace itself has not been modified by this repository.
-
-## Performance and validation
-
-The engine uses a streaming parser, half-open UTF-16 native ranges, bounded highlight/math caches, and append patches for settled blocks. Native input crosses C/JNI once per update. Web parsing and highlighting run in a worker with one active render and one queued replacement.
-
-```sh
-./scripts/check.sh
-cargo bench -p markit --bench throughput
+```
+HTML           ████████████████ 0.128 ms
+Parse          ██████████████████ 0.145 ms
+Parse + JSON   ████████████████████████████ 0.229 ms
 ```
 
-`check.sh` requires Playwright Chromium, installed with `cd web && npx playwright install chromium`. Swift bridge tests, Android instrumentation commands, build checks, and measured limits are documented in [validation](docs/validation.md) and [performance](docs/performance.md). Native simulator UI tests have not run in this session because Ace device controls are disabled. See [measured comparisons with Ace's existing libraries](docs/benchmark-comparison.md) for the initial baseline, and [the optimization report](docs/performance-optimization.md) for the faster range transport, native grammar backend, math paths, and remaining gaps.
+Streaming append after a 104 KB history: ~0.032 ms/update, 68 source bytes reconsidered. Math (6 new formulas): ~0.976 ms uncached, ~0.007 ms cached in HTML.
 
-For optional standard WebGPU code drawing, use `{ codeRendering: 'webgpu' }`. See [WebGPU measurements and efficiency limits](docs/webgpu.md). Automatic selection retains the text renderer until target-device measurements justify a GPU default.
+Against JS renderers (Node v26, same GFM fixture, Markit as release WASM):
+
+| Renderer | 0.26 KB | 12.9 KB | 103 KB |
+| --- | ---: | ---: | ---: |
+| markit-wasm | 0.005 ms | 0.215 ms | 2.007 ms |
+| marked 18.1.2 | 0.016 ms | 0.756 ms | 6.196 ms |
+| markdown-it 15.0.3 | 0.025 ms | 1.153 ms | 9.888 ms |
+| showdown 2.1.0 | 0.068 ms | 4.427 ms | 250.441 ms |
+
+Markit's HTML includes syntax-colored code; the JS renderers emit plain code blocks. Showdown scales superlinearly on table-heavy input (3.6 → 9.7 → 47 → 250 ms at 50/100/200/400 sections).
+
+## Build and test
+
+```sh
+rustup target add wasm32-unknown-unknown aarch64-apple-ios aarch64-apple-ios-sim aarch64-linux-android x86_64-linux-android
+./scripts/build-web.sh
+./scripts/build-ios.sh
+./scripts/build-android.sh
+./scripts/check.sh
+```
+
+Details: [integration](docs/integration.md), [binary transport](docs/binary-transport.md), [WebGPU](docs/webgpu.md).
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE). Third-party notices in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and `licenses/`.
