@@ -224,6 +224,38 @@ pub unsafe extern "C" fn markit_stream_append_binary(
 }
 
 /// # Safety
+/// Same requirements as [`markit_stream_append`]. The buffer is an MKNP v2
+/// patch: an open fence sends only its appended text and changed spans.
+#[no_mangle]
+pub unsafe extern "C" fn markit_stream_append_patch(
+    stream: *mut markit::StreamRenderer,
+    source: *const u8,
+    len: usize,
+    finalized: u8,
+) -> MarkitBuffer {
+    if stream.is_null() || (source.is_null() && len != 0) || len > isize::MAX as usize {
+        return MarkitBuffer::error(2);
+    }
+    catch_unwind(|| {
+        // SAFETY: caller owns a live, exclusively accessed stream and readable input.
+        let stream = unsafe { &mut *stream };
+        let input = if len == 0 {
+            &[][..]
+        } else {
+            unsafe { slice::from_raw_parts(source, len) }
+        };
+        let Ok(delta) = str::from_utf8(input) else {
+            return MarkitBuffer::error(1);
+        };
+        if stream.source().len() + len > 8 * 1024 * 1024 {
+            return MarkitBuffer::error(2);
+        }
+        binary_result(stream.append_native_patch(delta, finalized != 0))
+    })
+    .unwrap_or_else(|_| MarkitBuffer::error(3))
+}
+
+/// # Safety
 /// Free a handle returned by markit_stream_new exactly once, with no call in flight.
 #[no_mangle]
 pub unsafe extern "C" fn markit_stream_free(stream: *mut markit::StreamRenderer) {
@@ -355,6 +387,31 @@ mod tests {
             markit_stream_free(handle);
         }
         let error = unsafe { markit_stream_append(ptr::null_mut(), ptr::null(), 0, 1) };
+        assert_eq!(error.status, 2);
+    }
+
+    #[test]
+    fn patch_stream_sends_fence_extensions() {
+        let handle = markit_stream_new();
+        let mut kinds = Vec::new();
+        for delta in ["```rust\n", "let a = 1;\n", "let b = 2;\n", "let c = 3;\n"] {
+            let patch =
+                unsafe { markit_stream_append_patch(handle, delta.as_ptr(), delta.len(), 0) };
+            assert_eq!(patch.status, 0);
+            let bytes = unsafe { slice::from_raw_parts(patch.data, patch.len) };
+            assert_eq!(&bytes[..8], b"MKNP\x02\0\0\0");
+            let count = u32::from_le_bytes(bytes[24..28].try_into().unwrap());
+            if count > 0 {
+                kinds.push(u32::from_le_bytes(bytes[28..32].try_into().unwrap()));
+            }
+            unsafe { markit_buffer_free(patch) };
+        }
+        assert_eq!(kinds.last(), Some(&1));
+        let bad = [0xffu8];
+        let invalid = unsafe { markit_stream_append_patch(handle, bad.as_ptr(), 1, 0) };
+        assert_eq!(invalid.status, 1);
+        unsafe { markit_stream_free(handle) };
+        let error = unsafe { markit_stream_append_patch(ptr::null_mut(), ptr::null(), 0, 1) };
         assert_eq!(error.status, 2);
     }
 }

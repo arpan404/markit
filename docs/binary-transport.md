@@ -134,7 +134,24 @@ color strings, optional full grammars, and FFI ownership/error handling.
 
 ## Native stream patch
 
-`encode_native_patch` and `markit_stream_append_binary` wrap one or more MKBP documents. Magic is `MKNP`, version 1, then little-endian `replace_from`, `finalized`, `source_bytes`, `parsed_bytes`, `block_count`, and for each block a `u32` byte length followed by that block's MKBP packet. A block with no native document returns `BinaryError::TooLarge` and C status 2. The JSON stream export is unchanged. Swift and Kotlin do not call this entry point yet.
+### MKNP version 1
+
+`encode_native_patch` and `markit_stream_append_binary` wrap one or more MKBP documents. Magic is `MKNP`, version 1, then little-endian `replace_from`, `finalized`, `source_bytes`, `parsed_bytes`, `block_count`, and for each block a `u32` byte length followed by that block's MKBP packet. A block with no native document returns `BinaryError::TooLarge` and C status 2. The JSON stream export is unchanged.
+
+### MKNP version 2
+
+`StreamRenderer::append_native_patch`, `markit_stream_append_patch` (C) and `Markit.nativeAppendPatch` (JNI) return version 2. Swift `MarkitStream` and Kotlin `MarkitStream` use it; their public `MarkitPatch` is unchanged. The header is the version 1 header with version 2. Each block then starts with a `u32` kind:
+
+- Kind 0, whole document: `u32` length and an MKBP packet, as in version 1.
+- Kind 1, open-fence extension: four `u32` words, then `u32` length and an MKBP packet.
+  - `keep_text_utf16`: keep this many UTF-16 units of the host's current text for this block, then append the packet's text.
+  - `head`: the first `head` spans of the packet come first.
+  - `keep_from`, `keep_to`: then the host's current spans in `[keep_from, keep_to)`.
+  - Then the rest of the packet's spans. Span offsets are absolute in the extended text, so a packet span may end past the packet's own text. The packet's blocks replace the host's blocks.
+
+Kind 1 always applies to the block the host already holds at `replace_from + i`. A host that rejects a patch must stop applying later patches from that stream, because Rust has already advanced. An unchanged open fence sends `replace_from = index + 1` and no blocks. While a fence is open and its syntax tones for earlier lines cannot change, each patch carries only the appended text and its spans, so a long live fence costs time proportional to the append, not the fence. The host still concatenates text and copies its kept span range, which is linear in the fence on the host side.
+
+The Rust model in `tests/native_patch.rs` replays version 2 patches and compares every step against the eager JSON stream for long Rust, Python, diff, plain and dense fences appended by line, by 7 bytes and by character.
 
 ## Benchmark
 

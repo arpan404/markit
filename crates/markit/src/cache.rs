@@ -1,13 +1,57 @@
 use std::{
-    collections::{hash_map::RandomState, VecDeque},
-    hash::{BuildHasher, Hash},
+    collections::VecDeque,
+    hash::{BuildHasher, Hash, Hasher},
 };
+
+/// Fingerprints only pre-filter candidates; every hit is confirmed with a full
+/// key comparison. A word-at-a-time multiply-rotate hash (FxHash) is several
+/// times faster than SipHash on multi-kilobyte source keys.
+#[derive(Default, Clone, Copy)]
+pub(crate) struct FastHash;
+pub(crate) struct FastHasher(u64);
+const SEED: u64 = 0x51_7c_c1_b7_27_22_0a_95;
+impl FastHasher {
+    #[inline]
+    fn add(&mut self, word: u64) {
+        self.0 = (self.0.rotate_left(5) ^ word).wrapping_mul(SEED);
+    }
+}
+impl Hasher for FastHasher {
+    fn write(&mut self, bytes: &[u8]) {
+        let mut chunks = bytes.chunks_exact(8);
+        for chunk in &mut chunks {
+            self.add(u64::from_le_bytes(chunk.try_into().expect("8-byte chunk")));
+        }
+        let rest = chunks.remainder();
+        if !rest.is_empty() {
+            let mut word = [0u8; 8];
+            word[..rest.len()].copy_from_slice(rest);
+            self.add(u64::from_le_bytes(word));
+        }
+        self.add(bytes.len() as u64);
+    }
+    fn write_u8(&mut self, n: u8) {
+        self.add(u64::from(n));
+    }
+    fn write_usize(&mut self, n: usize) {
+        self.add(n as u64);
+    }
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+impl BuildHasher for FastHash {
+    type Hasher = FastHasher;
+    fn build_hasher(&self) -> FastHasher {
+        FastHasher(0)
+    }
+}
 
 /// Small byte-budgeted LRU. Keys include the complete source, so collisions never
 /// return another document. Oversized results are used but not retained.
 pub(crate) struct Cache<K, V> {
     entries: VecDeque<(u64, K, V, usize)>,
-    hasher: RandomState,
+    hasher: FastHash,
     weight: usize,
     limit: usize,
 }
@@ -16,7 +60,7 @@ impl<K: PartialEq + Hash, V: Clone> Cache<K, V> {
     pub fn new(limit: usize) -> Self {
         Self {
             entries: VecDeque::new(),
-            hasher: RandomState::new(),
+            hasher: FastHash,
             weight: 0,
             limit,
         }

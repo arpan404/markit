@@ -35,12 +35,58 @@ struct LexedCode {
     checkpoint: Checkpoint,
     language: String,
     plain: bool,
+    /// Plain for this source and for every source that extends it (unknown
+    /// language, size limit, or a run limit reached inside final lines).
+    sticky: bool,
+    /// Every byte is ASCII, so UTF-16 offsets equal byte offsets.
+    ascii: bool,
     runs: Vec<(usize, Tone)>,
     tokens: OnceLock<Arc<HighlightedCode>>,
+    packed: OnceLock<Vec<u32>>,
+}
+
+impl LexedCode {
+    /// UTF-16 end offset of every run, without decoding ASCII sources.
+    fn utf16_ends<'a>(&'a self, code: &'a str) -> impl Iterator<Item = (usize, usize, Tone)> + 'a {
+        let mut start = 0;
+        let mut offset = 0;
+        let ascii = self.ascii;
+        self.runs.iter().map(move |&(end, tone)| {
+            let begin = offset;
+            offset = if ascii {
+                end
+            } else {
+                offset + utf16_len(&code[start..end])
+            };
+            start = end;
+            (begin, offset, tone)
+        })
+    }
 }
 
 pub fn language_alias(language: &str) -> String {
-    match language.trim().to_ascii_lowercase().as_str() {
+    canonical_language(language).into_owned()
+}
+
+/// Borrow names that are already canonical (the common case for fences and
+/// repeated highlight calls) instead of allocating twice per lookup.
+fn canonical_language(language: &str) -> std::borrow::Cow<'_, str> {
+    let canonical = !language.is_empty()
+        && !language
+            .bytes()
+            .any(|b| b.is_ascii_uppercase() || b.is_ascii_whitespace());
+    if canonical && alias_target(language).is_none() {
+        return std::borrow::Cow::Borrowed(language);
+    }
+    let lower = language.trim().to_ascii_lowercase();
+    match alias_target(&lower) {
+        Some(target) => std::borrow::Cow::Borrowed(target),
+        None => std::borrow::Cow::Owned(lower),
+    }
+}
+
+fn alias_target(language: &str) -> Option<&'static str> {
+    Some(match language {
         "ts" => "typescript",
         "js" | "mjs" | "cjs" => "javascript",
         "py" => "python",
@@ -53,9 +99,8 @@ pub fn language_alias(language: &str) -> String {
         "xml" | "svg" | "markup" => "html",
         "jsonc" => "json",
         "patch" => "diff",
-        other => return other.to_owned(),
-    }
-    .into()
+        _ => return None,
+    })
 }
 // Wire palette order is stable for binary transport version 1.
 pub(crate) const PALETTE: [(&str, &str, u32, u32); 8] = [
@@ -471,47 +516,58 @@ fn scan(code: &str, language: &str) -> LexedCode {
     scan_from(code, language, None)
 }
 
-fn scan_from(code: &str, language: &str, previous: Option<&LexedCode>) -> LexedCode {
-    let supported = [
-        "typescript",
-        "tsx",
-        "javascript",
-        "jsx",
-        "python",
-        "bash",
-        "rust",
-        "go",
-        "java",
-        "kotlin",
-        "swift",
-        "c",
-        "cpp",
-        "csharp",
-        "json",
-        "json5",
-        "yaml",
-        "markdown",
-        "sql",
-        "css",
-        "html",
-        "diff",
-        "clike",
-    ]
-    .contains(&language);
-    let plain = || LexedCode {
+const SUPPORTED: [&str; 23] = [
+    "typescript",
+    "tsx",
+    "javascript",
+    "jsx",
+    "python",
+    "bash",
+    "rust",
+    "go",
+    "java",
+    "kotlin",
+    "swift",
+    "c",
+    "cpp",
+    "csharp",
+    "json",
+    "json5",
+    "yaml",
+    "markdown",
+    "sql",
+    "css",
+    "html",
+    "diff",
+    "clike",
+];
+
+fn plain_code(code: &str, language: &str, sticky: bool) -> LexedCode {
+    LexedCode {
         checkpoint: Checkpoint::default(),
         language: language.into(),
         plain: true,
+        sticky,
+        ascii: code.is_ascii(),
         runs: vec![(code.len(), Tone::Plain)],
         tokens: OnceLock::new(),
-    };
-    if !supported || code.len() > 1024 * 1024 {
-        return plain();
+        packed: OnceLock::new(),
+    }
+}
+
+/// `previous` is the checkpoint of a scan of a prefix of `code` and that
+/// scan's runs, already truncated to the checkpoint.
+fn scan_from(
+    code: &str,
+    language: &str,
+    previous: Option<(Checkpoint, Vec<(usize, Tone)>)>,
+) -> LexedCode {
+    if !SUPPORTED.contains(&language) || code.len() > 1024 * 1024 {
+        return plain_code(code, language, true);
     }
     let bytes = code.as_bytes();
-    let mut checkpoint = previous.map_or(Checkpoint::default(), |old| old.checkpoint);
+    let (mut checkpoint, mut runs) = previous.unwrap_or_default();
     let mut at = checkpoint.at;
-    let mut runs = previous.map_or_else(Vec::new, |old| old.runs[..checkpoint.runs].to_vec());
     let mut in_tag = checkpoint.in_tag;
     let line_start = code.rfind('\n').map_or(0, |at| at + 1);
     let mut future_dependent = false;
@@ -677,72 +733,92 @@ fn scan_from(code: &str, language: &str, previous: Option<&LexedCode>) -> LexedC
             pending_tone = tone;
         }
         if runs.len() > 8192 {
-            return plain();
+            // Runs pushed before the last line, with no lookahead to the end of
+            // input, are final: any longer source reaches the same limit.
+            return plain_code(code, language, start <= line_start && !future_dependent);
         }
     }
     if at > pending_start {
         runs.push((at, pending_tone));
     }
     if runs.len() > 8192 {
-        return plain();
+        return plain_code(code, language, false);
     }
     LexedCode {
         checkpoint,
         language: language.into(),
         plain: false,
+        sticky: false,
+        ascii: bytes.is_ascii(),
         runs,
         tokens: OnceLock::new(),
+        packed: OnceLock::new(),
     }
 }
 fn lex(code: &str, language: &str) -> Arc<LexedCode> {
-    let language = language_alias(language);
+    let language = canonical_language(language);
+    let language = language.as_ref();
+    // The hot buffer is checked first: a streaming fence extends it on every
+    // append, and hashing the whole source for the shared cache would make
+    // each append linear in the fence length.
+    let hot = APPEND_SCAN.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        let (source, old) = slot.as_ref()?;
+        if old.language != language || !code.starts_with(source.as_str()) {
+            return None;
+        }
+        if source.len() == code.len() {
+            return Some(old.clone());
+        }
+        if !old.plain || old.sticky {
+            let (mut source, old) = slot.take()?;
+            let result = Arc::new(if old.sticky {
+                plain_code(code, language, true)
+            } else {
+                // `extended` scans only the new suffix. Those prefixes are
+                // not inserted into the shared cache: a streaming fence would
+                // otherwise copy the whole source on every line and evict
+                // useful entries. A unique previous result donates its runs.
+                let checkpoint = old.checkpoint;
+                let runs = match Arc::try_unwrap(old) {
+                    Ok(mut owned) => {
+                        owned.runs.truncate(checkpoint.runs);
+                        owned.runs
+                    }
+                    Err(shared) => shared.runs[..checkpoint.runs].to_vec(),
+                };
+                scan_from(code, language, Some((checkpoint, runs)))
+            });
+            source.push_str(&code[source.len()..]);
+            *slot = Some((source, result.clone()));
+            return Some(result);
+        }
+        None
+    });
+    if let Some(result) = hot {
+        return result;
+    }
     if let Some(cached) = CACHE.with(|cache| {
         cache
             .borrow_mut()
-            .get_by(&(language.as_str(), code), |key| {
-                key.0 == language && key.1 == code
-            })
+            .get_by(&(language, code), |key| key.0 == language && key.1 == code)
     }) {
         return cached;
     }
-    // `extended` scans only the new suffix. Those prefixes are not inserted
-    // into the shared cache: a streaming fence would otherwise copy the whole
-    // source on every line and evict useful entries. An exact repeat of the
-    // hot buffer returns the existing allocation.
-    let (result, store) = APPEND_SCAN.with(|slot| {
-        let mut slot = slot.borrow_mut();
-        if let Some((source, old)) = slot.as_ref() {
-            if old.language == language && source.as_str() == code {
-                return (old.clone(), false);
-            }
-        }
-        let extended = slot.as_ref().is_some_and(|(source, old)| {
-            old.language == language && !old.plain && code.starts_with(source.as_str())
-        });
-        let previous = extended
-            .then(|| slot.as_ref().map(|(_, old)| old.clone()))
-            .flatten();
-        let result = Arc::new(match &previous {
-            Some(old) => scan_from(code, &language, Some(old)),
-            None => scan(code, &language),
-        });
-        if extended {
-            if let Some((source, stored)) = slot.as_mut() {
-                source.push_str(&code[source.len()..]);
-                *stored = result.clone();
-            }
-            return (result, false);
-        }
-        *slot = (code.len() <= 1024 * 1024).then(|| (code.to_owned(), result.clone()));
-        (result, code.len() <= 1024 * 1024)
+    let result = Arc::new(scan(code, language));
+    let store = code.len() <= 1024 * 1024;
+    APPEND_SCAN.with(|slot| {
+        *slot.borrow_mut() = store.then(|| (code.to_owned(), result.clone()));
     });
     if store {
         // Reserve the budget for lazy token materialization as well as compact runs.
         let weight = language.len() + code.len() * 2 + result.runs.len() * 128;
         CACHE.with(|cache| {
-            cache
-                .borrow_mut()
-                .insert((language, code.to_owned()), result.clone(), weight)
+            cache.borrow_mut().insert(
+                (language.to_owned(), code.to_owned()),
+                result.clone(),
+                weight,
+            )
         });
     }
     result
@@ -750,16 +826,35 @@ fn lex(code: &str, language: &str) -> Arc<LexedCode> {
 
 /// Compact runs for one source. `stable_byte` is a line boundary: every run
 /// that ends there is final for an append-only buffer. The open tail is the
-/// last line, or the line that still contains a multiline token.
+/// last line, or the line that still contains a multiline token. Runs are
+/// borrowed from the lexer result, so a streaming append does not copy them.
 pub(crate) struct LexRuns {
+    lexed: Arc<LexedCode>,
     pub plain: bool,
-    pub runs: Vec<(usize, u8)>,
     pub stable_byte: usize,
 }
 
 impl LexRuns {
     pub(crate) fn is_plain(&self) -> bool {
         self.plain
+    }
+    /// Byte end of run `index`.
+    pub(crate) fn end(&self, index: usize) -> usize {
+        self.lexed.runs[index].0
+    }
+    /// Index of the first run whose end is greater than `byte`.
+    pub(crate) fn first_ending_after(&self, byte: usize) -> usize {
+        self.lexed.runs.partition_point(|(end, _)| *end <= byte)
+    }
+    /// `(byte end, palette id)` of every run from `index`.
+    pub(crate) fn from(&self, index: usize) -> impl Iterator<Item = (usize, u8)> + '_ {
+        self.lexed.runs[index..]
+            .iter()
+            .map(|&(end, tone)| (end, tone.palette_id() as u8))
+    }
+    /// The source has no multi-byte characters.
+    pub(crate) fn ascii(&self) -> bool {
+        self.lexed.ascii
     }
 }
 
@@ -777,12 +872,8 @@ pub(crate) fn lex_runs(code: &str, language: &str) -> LexRuns {
     };
     LexRuns {
         plain: lexed.plain,
-        runs: lexed
-            .runs
-            .iter()
-            .map(|&(end, tone)| (end, tone.palette_id() as u8))
-            .collect(),
         stable_byte,
+        lexed,
     }
 }
 
@@ -825,30 +916,25 @@ pub(crate) fn append_syntax_spans(
     if lexed.plain {
         return;
     }
-    let mut start = 0;
-    let mut offset = base;
-    for &(end, tone) in &lexed.runs {
-        let next = offset + utf16_len(&code[start..end]);
-        if next > offset {
+    spans.reserve(lexed.runs.len());
+    for (from, to, tone) in lexed.utf16_ends(code) {
+        if to > from {
             let (light, dark) = tone.colors();
             spans.push(crate::Span {
-                start: offset,
-                end: next,
+                start: base + from,
+                end: base + to,
                 style: crate::Style::Syntax {
                     light: light.into(),
                     dark: dark.into(),
                 },
             });
         }
-        start = end;
-        offset = next;
     }
 }
 
 pub(crate) fn code_document(code: &str, language: &str) -> crate::Document {
     let lexed = lex(code, language);
     let mut spans = Vec::with_capacity(lexed.runs.len() + 1);
-    let mut start = 0;
     let mut offset = 0;
     spans.push(crate::Span {
         start: 0,
@@ -857,21 +943,19 @@ pub(crate) fn code_document(code: &str, language: &str) -> crate::Document {
             language: lexed.language.clone(),
         },
     });
-    for &(end, tone) in &lexed.runs {
-        let next = offset + utf16_len(&code[start..end]);
-        if !lexed.plain && next > offset {
+    for (from, to, tone) in lexed.utf16_ends(code) {
+        if !lexed.plain && to > from {
             let (light, dark) = tone.colors();
             spans.push(crate::Span {
-                start: offset,
-                end: next,
+                start: from,
+                end: to,
                 style: crate::Style::Syntax {
                     light: light.into(),
                     dark: dark.into(),
                 },
             });
         }
-        start = end;
-        offset = next;
+        offset = to;
     }
     spans[0].end = offset;
     crate::Document {
@@ -924,43 +1008,16 @@ pub fn for_each_code_span(code: &str, language: &str, mut emit: impl FnMut(Borro
     if lexed.plain {
         return;
     }
-    let mut start = 0;
-    let mut offset = 0;
-    for (end, light, dark) in SpanOffsets::new(&lexed.runs) {
-        let next = offset + utf16_len(&code[start..end]);
-        if next > offset {
+    for (start, end, tone) in lexed.utf16_ends(code) {
+        if end > start {
+            let (light, dark) = tone.colors();
             emit(BorrowedCodeSpan::Syntax {
-                start: offset,
-                end: next,
+                start,
+                end,
                 light,
                 dark,
             });
         }
-        start = end;
-        offset = next;
-    }
-}
-
-/// Byte-to-UTF-16 walk shared by [`for_each_code_span`] and
-/// [`code_document_json`], mirroring the [`code_document`] loop so offsets
-/// cannot drift between the borrowed and owned paths.
-struct SpanOffsets<'a> {
-    runs: std::slice::Iter<'a, (usize, Tone)>,
-}
-
-impl<'a> SpanOffsets<'a> {
-    fn new(runs: &'a [(usize, Tone)]) -> Self {
-        Self { runs: runs.iter() }
-    }
-}
-
-impl Iterator for SpanOffsets<'_> {
-    type Item = (usize, &'static str, &'static str);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let &(end, tone) = self.runs.next()?;
-        let (light, dark) = tone.colors();
-        Some((end, light, dark))
     }
 }
 
@@ -1016,22 +1073,18 @@ impl serde::Serialize for DocumentSpans<'_> {
             language: &self.doc.lexed.language,
         })?;
         if !self.doc.lexed.plain {
-            let mut start = 0;
-            let mut offset = 0;
-            for (end, light, dark) in SpanOffsets::new(&self.doc.lexed.runs) {
-                let next = offset + utf16_len(&self.doc.code[start..end]);
-                if next > offset {
+            for (start, end, tone) in self.doc.lexed.utf16_ends(self.doc.code) {
+                if end > start {
+                    let (light, dark) = tone.colors();
                     // Same shape and field order as `Span` with flattened `Syntax`.
                     seq.serialize_element(&BorrowedSyntaxSpan {
-                        start: offset,
-                        end: next,
+                        start,
+                        end,
                         kind: "syntax",
                         light,
                         dark,
                     })?;
                 }
-                start = end;
-                offset = next;
             }
         }
         seq.end()
@@ -1083,19 +1136,21 @@ struct BorrowedBlock {
 /// light/dark 24-bit RGB. Runs are contiguous and start at offset zero.
 pub fn highlight_packed(code: &str, language: &str) -> Vec<u32> {
     let lexed = lex(code, language);
-    let language_units = lexed.language.encode_utf16().count();
-    let mut words = Vec::with_capacity(3 + language_units + lexed.runs.len() * 3);
-    words.extend([1, u32::from(lexed.plain), language_units as u32]);
-    words.extend(lexed.language.encode_utf16().map(u32::from));
-    let mut start = 0;
-    let mut offset = 0;
-    for &(end, tone) in &lexed.runs {
-        offset += utf16_len(&code[start..end]) as u32;
-        let (light, dark) = tone.rgb();
-        words.extend([offset, light, dark]);
-        start = end;
-    }
-    words
+    // A repeated file copies the retained words instead of walking runs.
+    lexed
+        .packed
+        .get_or_init(|| {
+            let language_units = lexed.language.encode_utf16().count();
+            let mut words = Vec::with_capacity(3 + language_units + lexed.runs.len() * 3);
+            words.extend([1, u32::from(lexed.plain), language_units as u32]);
+            words.extend(lexed.language.encode_utf16().map(u32::from));
+            for (_, offset, tone) in lexed.utf16_ends(code) {
+                let (light, dark) = tone.rgb();
+                words.extend([offset as u32, light, dark]);
+            }
+            words
+        })
+        .clone()
 }
 
 /// Serialize `{"language","plain","tokens":[...]}` directly from compact

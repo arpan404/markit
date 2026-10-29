@@ -9,7 +9,7 @@ description = "Shared Markdown engine for native text and WebAssembly"
 pulldown-cmark.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-latex-rust = { version = "=2.1.1", features = ["png"] }
+latex-rust = { version = "=2.1.1", default-features = false, features = ["std"] }
 base64 = "0.22"
 linkify = "0.10"
 unicase = "2"
@@ -17,6 +17,8 @@ unicase = "2"
 # Oniguruma runs native grammar regexes without the portable backtracking VM.
 # Wasm keeps the pure Rust backend and does not need a C runtime or imports.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Native math PNGs. Wasm only emits SVG, so it does not link a rasterizer.
+tiny-skia = "=0.11.4"
 syntect = { version = "5.3", default-features = false, features = ["parsing", "regex-onig"], optional = true }
 two-face = { version = "0.5.2", default-features = false, features = ["syntect-onig"], optional = true }
 

@@ -19,3 +19,6 @@ node_modules/
 /platforms/ios/Sources/Markit/Licenses/
 /benchmarks/artifacts/
 /benchmarks/__pycache__/
+/web/tests/react/dist/
+/web/bench/.ace/
+/web/bench/dist/

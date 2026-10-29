@@ -3,9 +3,11 @@ package dev.markit
 import org.json.JSONObject
 import java.io.Closeable
 
-data class MarkitSpan(val start: Int, val end: Int, val kind: String, val data: JSONObject) {
-    fun string(key: String): String = if (data.isNull(key)) "" else data.optString(key, "")
-    fun number(key: String): Int = data.optInt(key, 0)
+/** Span payload fields use the JSON export's names (`url`, `level`, `png`, ...). */
+data class MarkitSpan(val start: Int, val end: Int, val kind: String, val fields: Map<String, Any> = emptyMap()) {
+    fun string(key: String): String = fields[key]?.toString() ?: ""
+    fun number(key: String): Int = when (val value = fields[key]) { is Number -> value.toInt(); is String -> value.toIntOrNull() ?: 0; else -> 0 }
+    fun bool(key: String): Boolean = fields[key] == true
 }
 data class MarkitBlock(val start: Int, val end: Int, val kind: String)
 data class MarkitDocument(val version: Int, val text: String, val spans: List<MarkitSpan>, val blocks: List<MarkitBlock>) {
@@ -27,7 +29,9 @@ data class MarkitDocument(val version: Int, val text: String, val spans: List<Ma
                 List(spans.length()) { i -> val span = spans.getJSONObject(i)
                     val start = span.getInt("start"); val end = span.getInt("end")
                     require(start >= 0 && end >= start && end <= text.length)
-                    MarkitSpan(start, end, span.getString("kind"), span)
+                    val fields = HashMap<String, Any>()
+                    for (key in span.keys()) if (key != "start" && key != "end" && key != "kind" && !span.isNull(key)) fields[key] = span.get(key)
+                    MarkitSpan(start, end, span.getString("kind"), fields)
                 }, List(blocks.length()) { i -> val block = blocks.getJSONObject(i)
                     val start = block.getInt("start"); val end = block.getInt("end")
                     require(start >= 0 && end >= start && end <= text.length)
@@ -44,17 +48,31 @@ object Markit {
     @JvmStatic private external fun nativeRender(source: String, format: Int): String
     @JvmStatic external fun nativeCreateStream(): Long
     @JvmStatic external fun nativeAppend(handle: Long, delta: String, finalized: Boolean): String
+    /** MKNP v2 patch bytes. See docs/binary-transport.md. */
+    @JvmStatic external fun nativeAppendPatch(handle: Long, delta: String, finalized: Boolean): ByteArray
     @JvmStatic external fun nativeFreeStream(handle: Long)
     fun parse(source: String): MarkitDocument = MarkitDocument.decode(JSONObject(nativeRender(source, 0)))
     fun highlight(source: String, language: String, fullGrammar: Boolean = false): MarkitDocument = MarkitDocument.decode(JSONObject(nativeRender(JSONObject().put("source", source).put("language", language).toString(), if (fullGrammar) 3 else 2)))
 }
+/**
+ * Patches cross JNI as MKNP v2 bytes instead of JSON. An open code fence sends
+ * only its appended text and changed spans, applied to the block this stream
+ * already holds, so a long live fence stays proportional to each append.
+ */
 class MarkitStream : Closeable {
     private var handle = Markit.nativeCreateStream()
+    private val documents = ArrayList<MarkitDocument>()
+    private var failed = false
     @Synchronized fun append(delta: String, finalized: Boolean = false): MarkitPatch {
         check(handle != 0L) { "Stream closed" }
-        val patch = JSONObject(Markit.nativeAppend(handle, delta, finalized))
-        val blocks = patch.getJSONArray("blocks")
-        return MarkitPatch(patch.getInt("replace_from"), List(blocks.length()) { MarkitDocument.decode(blocks.getJSONObject(it).getJSONObject("document")) }, patch.getBoolean("finalized"))
+        check(!failed) { "Stream failed; create a new stream" }
+        val bytes = Markit.nativeAppendPatch(handle, delta, finalized)
+        try {
+            return NativePatchReader.apply(bytes, documents)
+        } catch (error: RuntimeException) {
+            failed = true
+            throw error
+        }
     }
     @Synchronized override fun close() { if (handle != 0L) { Markit.nativeFreeStream(handle); handle = 0 } }
 }

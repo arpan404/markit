@@ -60,4 +60,70 @@ fn main() {
         prefix.len(),
         parsed
     );
+    math();
+    #[cfg(feature = "grammars")]
+    grammars();
+}
+
+/// Uncached math: every formula is new, so parse, layout, SVG and PNG all run.
+fn math() {
+    const FORMULAS: [&str; 6] = [
+        "x^2 + y^2 = z^2",
+        "\\frac{a+b}{c-d}",
+        "\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}",
+        "\\int_0^\\infty e^{-x^2}\\,dx",
+        "\\sqrt{x} + \\alpha\\beta",
+        "\\left( \\frac{1}{2} \\right)^{n}",
+    ];
+    println!("\nMath (6 new formulas per iteration)");
+    let mut n = 0u64;
+    measure("math SVG + PNG", "", |_| {
+        n += 1;
+        for tex in FORMULAS {
+            black_box(markit::render_math(&format!("{tex}+{n}"), true));
+        }
+    });
+    let document: String = FORMULAS
+        .iter()
+        .map(|tex| format!("$${tex}$$\n\n"))
+        .collect();
+    measure("math HTML, cached", &document, |s| {
+        black_box(markit::render_html(s));
+    });
+}
+
+/// Optional full grammars: a cold document, a mid-document edit and a
+/// fence growing one line at a time.
+#[cfg(feature = "grammars")]
+fn grammars() {
+    let source: String = (0..200)
+        .map(|i| {
+            format!("fn item_{i}(value: i64) -> i64 {{ /* line {i} */ value.wrapping_add({i}) }}\n")
+        })
+        .collect();
+    println!("\nFull grammars (Rust, 200 lines)");
+    let mut n = 0u64;
+    measure("grammar cold", &source, |s| {
+        n += 1;
+        // Every line changes, so nothing is reused from the last document.
+        black_box(markit::highlight_grammar(
+            &s.replace("value", &format!("v{n}")),
+            "rust",
+        ));
+    });
+    measure("grammar mid edit", &source, |s| {
+        n += 1;
+        let at = s.len() / 2;
+        let at = s[at..].find('\n').map_or(at, |i| at + i + 1);
+        let edited = format!("{}// {n}\n{}", &s[..at], &s[at..]);
+        black_box(markit::highlight_grammar(&edited, "rust"));
+    });
+    measure("grammar grow 200", &source, |s| {
+        n += 1;
+        let mut built = format!("// {n}\n");
+        for line in s.split_inclusive('\n') {
+            built.push_str(line);
+            black_box(markit::highlight_grammar(&built, "rust"));
+        }
+    });
 }

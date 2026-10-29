@@ -198,7 +198,21 @@ fn main() {
     let mut binary_samples = Vec::new();
     let mut json_bytes = 0usize;
     let mut binary_bytes = 0usize;
+    let mut patch_samples = Vec::new();
+    let mut patch_bytes = 0usize;
     for _ in 0..5 {
+        patch_samples.push(time_ms(|| {
+            let mut stream = markit::StreamRenderer::new_native();
+            for (i, chunk) in line_chunks.iter().enumerate() {
+                let encoded = stream
+                    .append_native_patch(chunk, i + 1 == line_chunks.len())
+                    .unwrap();
+                if i + 2 == line_chunks.len() {
+                    patch_bytes = encoded.len();
+                }
+                black_box(encoded);
+            }
+        }));
         json_samples.push(time_ms(|| {
             let mut stream = markit::StreamRenderer::new_native();
             for (i, chunk) in line_chunks.iter().enumerate() {
@@ -224,6 +238,10 @@ fn main() {
     println!(
         "stream_fence_400 native_mknp median_ms={:.3} last_patch_bytes={binary_bytes}",
         median(binary_samples)
+    );
+    println!(
+        "stream_fence_400 native_mknp_v2 median_ms={:.3} open_patch_bytes={patch_bytes}",
+        median(patch_samples)
     );
     let _ = fence;
 

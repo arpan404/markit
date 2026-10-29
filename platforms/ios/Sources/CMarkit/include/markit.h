@@ -30,6 +30,9 @@ MarkitBuffer markit_stream_append(MarkitStream *stream, const uint8_t *source, s
 /* Same input rules as markit_stream_append. Output is an MKNP v1 patch of MKBP
    documents instead of JSON. Status 2 if a block has no native document. */
 MarkitBuffer markit_stream_append_binary(MarkitStream *stream, const uint8_t *source, size_t len, uint8_t finalized);
+/* Same input rules. Output is an MKNP v2 patch: whole MKBP documents, or for an
+   open code fence an extension of the block the caller already holds. */
+MarkitBuffer markit_stream_append_patch(MarkitStream *stream, const uint8_t *source, size_t len, uint8_t finalized);
 void markit_stream_free(MarkitStream *stream);
 #ifdef __cplusplus
 }

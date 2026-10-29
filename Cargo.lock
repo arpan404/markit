@@ -229,7 +229,6 @@ version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8094b939c8af51f9c7d08256ffa607b743e24d466d9a0ccc602dc748c911e54"
 dependencies = [
- "tiny-skia",
  "ttf-parser",
 ]
 
@@ -265,6 +264,7 @@ dependencies = [
  "serde",
  "serde_json",
  "syntect",
+ "tiny-skia",
  "two-face",
  "unicase",
 ]

@@ -11,6 +11,8 @@ mod grammar;
 mod highlight;
 mod html;
 mod math;
+#[cfg(not(target_arch = "wasm32"))]
+mod math_raster;
 mod reference;
 mod span_index;
 mod stream;
