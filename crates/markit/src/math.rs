@@ -27,8 +27,9 @@ fn font() -> Option<&'static MathFont> {
 /// layout is identical, but only the glyphs in `math-core-glyphs.txt` keep their
 /// outlines. The others are split into groups by alphabet or symbol family. A
 /// formula that would draw a glyph whose group is not loaded is not drawn: it
-/// adds the group to [`web_font::take_missing`] so the host can fetch
-/// `math-glyphs-N.bin`, merge it with [`web_font::add_glyphs`], and render again.
+/// adds the group to [`web_font::take_missing`] so the host can fetch every
+/// missing `math-glyphs-N.bin`, merge them in one [`web_font::add_glyphs`]
+/// call, and render again.
 #[cfg(target_arch = "wasm32")]
 pub mod web_font {
     use super::*;
@@ -86,22 +87,34 @@ pub mod web_font {
         MISSING.with(|missing| missing.replace(0))
     }
 
-    /// Merges a glyph chunk into the face and drops formulas cached without it.
-    pub fn add_glyphs(chunk: &[u8]) -> bool {
-        let Some(&(gid, _)) = crate::math_glyphs::chunk_glyphs(chunk)
-            .as_ref()
-            .and_then(|g| g.first())
-        else {
+    /// Merges one or more glyph chunks, written back to back, into the face
+    /// and drops formulas cached without them. The face is rebuilt once per
+    /// call, so a render that needs several groups copies the font once.
+    pub fn add_glyphs(chunks: &[u8]) -> bool {
+        let Some(chunks) = crate::math_glyphs::split_chunks(chunks) else {
             return false;
         };
-        let group = GROUPS.get(gid).copied().unwrap_or(0);
-        if group == 0 || group >= 32 {
-            return false;
+        let loaded = LOADED.with(Cell::get);
+        let mut added = 0u32;
+        let mut glyphs = Vec::new();
+        for chunk in chunks {
+            let Some(&(gid, _)) = chunk.first() else {
+                return false;
+            };
+            let group = GROUPS.get(gid).copied().unwrap_or(0);
+            if group == 0 || group >= 32 {
+                return false;
+            }
+            let bit = 1u32 << group;
+            if (loaded | added) & bit == 0 {
+                added |= bit;
+                glyphs.extend(chunk);
+            }
         }
-        if LOADED.with(Cell::get) & (1 << group) != 0 {
+        if added == 0 {
             return true;
         }
-        let Some(bytes) = crate::math_glyphs::merge(BYTES.with(Cell::get), chunk) else {
+        let Some(bytes) = crate::math_glyphs::merge_glyphs(BYTES.with(Cell::get), glyphs) else {
             return false;
         };
         let bytes: &'static [u8] = Vec::leak(bytes);
@@ -111,7 +124,7 @@ pub mod web_font {
         // Formulas already laid out refer to earlier faces, so those stay alive.
         FACE.with(|face| face.set(Some(Box::leak(Box::new(font)))));
         BYTES.with(|cell| cell.set(bytes));
-        LOADED.with(|loaded| loaded.set(loaded.get() | 1 << group));
+        LOADED.with(|cell| cell.set(loaded | added));
         CACHE.with(|cache| *cache.borrow_mut() = crate::cache::Cache::new(4 * 1024 * 1024));
         true
     }

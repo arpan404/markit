@@ -9,17 +9,31 @@ final class MarkitRowsPane: UIView, UITableViewDataSource {
     private let sourceRange: NSRange
     private var lines: [NSRange] = []
     private var lineSpans: [[MarkitSpan]]?
+    private var rowSpans: [MarkitSpan]?
     private var cells: [[MarkitSpan]] = []
+    /// Spans intersecting each table cell, in row-major order.
+    private var cellSpans: [[MarkitSpan]] = []
+    private var cellOffsets: [Int] = []
     private let isTable: Bool
     private let contentWidth: CGFloat
 
-    init(document: MarkitDocument, range: NSRange, kind: String, availableWidth: CGFloat) {
+    /// `spans` may narrow the document's spans to those intersecting `range`.
+    init(document: MarkitDocument, range: NSRange, kind: String, availableWidth: CGFloat, spans rowSpans: [MarkitSpan]? = nil) {
         self.document = document; sourceRange = range; isTable = kind == "table"
         let text = document.text as NSString
+        let candidates = rowSpans ?? document.spans
+        self.rowSpans = rowSpans
         if isTable {
+            // Empty cells have empty ranges, so they are found in the whole document.
             let spans = document.spans.filter { $0.kind == "table_cell" && $0.start >= range.location && $0.end <= NSMaxRange(range) }
             let groups = Dictionary(grouping: spans, by: { $0.row ?? 0 })
             cells = groups.keys.sorted().map { groups[$0]!.sorted { ($0.column ?? 0) < ($1.column ?? 0) } }
+            let ranges = cells.flatMap { $0.map(\.range) }
+            // Cells are sorted by row then column, so their ranges ascend.
+            if zip(ranges, ranges.dropFirst()).allSatisfy({ NSMaxRange($0) <= $1.location }) {
+                cellSpans = spansByLine(candidates, lines: ranges)
+                cellOffsets = cells.reduce(into: [0]) { $0.append($0.last! + $1.count) }
+            }
             contentWidth = max(availableWidth, CGFloat(cells.first?.count ?? 1) * 160)
         } else {
             var start = range.location
@@ -31,8 +45,8 @@ final class MarkitRowsPane: UIView, UITableViewDataSource {
                 start = newline.location == NSNotFound ? NSMaxRange(range) : end + 1
             }
             // Small or unhighlighted blocks are cheaper to scan directly.
-            if lines.count > 50 && document.spans.count > lines.count {
-                lineSpans = spansByLine(document.spans, lines: lines)
+            if lines.count > 50 && candidates.count > lines.count {
+                lineSpans = spansByLine(candidates, lines: lines)
             }
             let widest = lines.map(\.length).max() ?? 0
             contentWidth = max(availableWidth, min(12000, CGFloat(widest + 8) * 8))
@@ -74,15 +88,16 @@ final class MarkitRowsPane: UIView, UITableViewDataSource {
         if !isTable {
             let cell = tableView.dequeueReusableCell(withIdentifier: "code-line") as? CodeLineCell ?? CodeLineCell()
             cell.number.text = String(indexPath.row + 1)
-            cell.code.attributedText = attributed(document, range: lines[indexPath.row], traits: traitCollection, candidates: lineSpans?[indexPath.row])
+            cell.code.attributedText = attributed(document, range: lines[indexPath.row], traits: traitCollection, candidates: lineSpans?[indexPath.row] ?? rowSpans)
             return cell
         }
         let cell = tableView.dequeueReusableCell(withIdentifier: "line") ?? UITableViewCell(style: .default, reuseIdentifier: "line")
         cell.selectionStyle = .none; cell.backgroundColor = .clear
         cell.contentView.subviews.forEach { $0.removeFromSuperview() }
         let stack = UIStackView(); stack.axis = .horizontal; stack.alignment = .center
-        for span in cells[indexPath.row] {
-            let label = UILabel(); label.attributedText = attributed(document, range: span.range, traits: traitCollection)
+        for (column, span) in cells[indexPath.row].enumerated() {
+            let candidates = cellOffsets.isEmpty ? rowSpans : cellSpans[cellOffsets[indexPath.row] + column]
+            let label = UILabel(); label.attributedText = attributed(document, range: span.range, traits: traitCollection, candidates: candidates)
             label.textAlignment = span.alignment == "right" ? .right : span.alignment == "center" ? .center : .left
             label.numberOfLines = 2; label.widthAnchor.constraint(equalToConstant: contentWidth / CGFloat(max(1, cells[indexPath.row].count)) - 16).isActive = true
             stack.addArrangedSubview(label)

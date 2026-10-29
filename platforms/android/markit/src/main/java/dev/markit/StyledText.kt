@@ -22,9 +22,23 @@ import android.widget.TextView
 internal class MathSpan(drawable: android.graphics.drawable.Drawable, val raw: String) : ImageSpan(drawable, ALIGN_BASELINE)
 internal fun Context.dp(value: Int): Int = (resources.displayMetrics.density * value).toInt()
 internal fun Context.ink(): Int = if (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES) Color.rgb(230,237,243) else Color.rgb(36,41,47)
+/** Values [styled] would otherwise rebuild for every span of every bound row. */
+private object StyleCache {
+    private val colors = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    /** Decoded math bitmaps by their Base64 PNG, bounded by bitmap bytes. */
+    private val math = object : android.util.LruCache<String, android.graphics.Bitmap>(16 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: android.graphics.Bitmap) = value.byteCount
+    }
+    fun color(value: String): Int = colors.getOrPut(value) { Color.parseColor(value) }
+    fun mathBitmap(png: String): android.graphics.Bitmap? = math.get(png) ?: run {
+        val bytes = Base64.decode(png, Base64.DEFAULT)
+        BitmapFactory.decodeByteArray(bytes,0,bytes.size)?.also { math.put(png,it) }
+    }
+}
 internal fun styled(document: MarkitDocument, start: Int, end: Int, context: Context, onLink: (String) -> Unit, onReference: (MarkitReference) -> Unit, candidates: List<MarkitSpan> = document.spans): SpannableString {
     val output = SpannableString(document.text.substring(start, end))
     val dark = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+    val ink = context.ink()
     for (span in candidates) {
         val from = maxOf(start, span.start) - start; val to = minOf(end, span.end) - start
         if (from >= to) continue
@@ -35,8 +49,8 @@ internal fun styled(document: MarkitDocument, start: Int, end: Int, context: Con
             "emphasis" -> apply(StyleSpan(Typeface.ITALIC))
             "strikethrough" -> apply(StrikethroughSpan())
             "code", "code_block", "table" -> { apply(TypefaceSpan("monospace")); apply(AbsoluteSizeSpan(13,true)) }
-            "syntax" -> apply(ForegroundColorSpan(Color.parseColor(span.string(if (dark) "dark" else "light"))))
-            "quote" -> { apply(QuoteSpan(context.ink())); apply(LeadingMarginSpan.Standard(context.dp(12))) }
+            "syntax" -> apply(ForegroundColorSpan(StyleCache.color(span.string(if (dark) "dark" else "light"))))
+            "quote" -> { apply(QuoteSpan(ink)); apply(LeadingMarginSpan.Standard(context.dp(12))) }
             "list_item" -> apply(LeadingMarginSpan.Standard(context.dp(12)))
             "diff" -> when(span.string("change")) {
                 "addition" -> apply(BackgroundColorSpan(0x222ea043)); "deletion" -> apply(BackgroundColorSpan(0x22f85149))
@@ -44,10 +58,9 @@ internal fun styled(document: MarkitDocument, start: Int, end: Int, context: Con
             "link" -> apply(object : ClickableSpan() { override fun onClick(widget: View) { onLink(span.string("url")) } })
             "reference" -> apply(object : ClickableSpan() { override fun onClick(widget: View) { onReference(MarkitReference(span.string("reference_kind"), span.string("target"))) } })
             "math" -> {
-                val bytes = Base64.decode(span.string("png"), Base64.DEFAULT)
-                val bitmap = BitmapFactory.decodeByteArray(bytes,0,bytes.size) ?: continue
+                val bitmap = StyleCache.mathBitmap(span.string("png")) ?: continue
                 val drawable = BitmapDrawable(context.resources,bitmap)
-                drawable.setTint(context.ink())
+                drawable.setTint(ink)
                 val width = maxOf(1, span.number("width") / 2); val height = maxOf(1, span.number("height") / 2)
                 val scale = minOf(1f, 320f / width)
                 drawable.setBounds(0,0,context.dp((width*scale).toInt()),context.dp((height*scale).toInt()))

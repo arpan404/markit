@@ -10,7 +10,8 @@
 //! ```
 //!
 //! Merging replaces those glyphs' charstrings and rewrites only the trailing
-//! INDEX, so every other table and offset stays put.
+//! INDEX, so every other table and offset stays put. Several chunks may be
+//! written back to back and merged in one pass with [`split_chunks`].
 
 fn u16_at(data: &[u8], at: usize) -> Option<usize> {
     Some(usize::from(u16::from_be_bytes(
@@ -76,27 +77,56 @@ fn charstrings_offset(dict: &[u8]) -> Option<usize> {
     None
 }
 
-/// Glyph ids and charstrings in a chunk.
-pub fn chunk_glyphs(chunk: &[u8]) -> Option<Vec<(usize, &[u8])>> {
-    if chunk.get(..4)? != b"MKGC" || u32_at(chunk, 4)? != 1 {
+/// Glyph ids and their charstrings.
+pub type Glyphs<'a> = Vec<(usize, &'a [u8])>;
+
+/// Glyph ids and charstrings of the chunk at the start of `bytes`, and the
+/// offset just past it.
+fn leading_chunk(bytes: &[u8]) -> Option<(Glyphs<'_>, usize)> {
+    if bytes.get(..4)? != b"MKGC" || u32_at(bytes, 4)? != 1 {
         return None;
     }
-    let count = u32_at(chunk, 8)?;
+    let count = u32_at(bytes, 8)?;
     let mut at = 12;
-    let mut glyphs = Vec::with_capacity(count.min(chunk.len() / 6));
+    let mut glyphs = Vec::with_capacity(count.min(bytes.len() / 6));
     for _ in 0..count {
-        let gid = u16_at(chunk, at)?;
-        let len = u32_at(chunk, at + 2)?;
-        glyphs.push((gid, chunk.get(at + 6..at + 6 + len)?));
+        let gid = u16_at(bytes, at)?;
+        let len = u32_at(bytes, at + 2)?;
+        glyphs.push((gid, bytes.get(at + 6..at + 6 + len)?));
         at += 6 + len;
     }
-    (at == chunk.len()).then_some(glyphs)
+    Some((glyphs, at))
+}
+
+/// Glyph ids and charstrings in a chunk.
+pub fn chunk_glyphs(chunk: &[u8]) -> Option<Glyphs<'_>> {
+    let (glyphs, end) = leading_chunk(chunk)?;
+    (end == chunk.len()).then_some(glyphs)
+}
+
+/// The chunks in `bytes`, several chunks written back to back.
+pub fn split_chunks(mut bytes: &[u8]) -> Option<Vec<Glyphs<'_>>> {
+    let mut chunks = Vec::new();
+    while !bytes.is_empty() {
+        let (glyphs, end) = leading_chunk(bytes)?;
+        chunks.push(glyphs);
+        bytes = &bytes[end..];
+    }
+    (!chunks.is_empty()).then_some(chunks)
 }
 
 /// The core font `otf` with the outlines in `chunk`, or `None` if either is
 /// not in the layout described above.
 pub fn merge(otf: &[u8], chunk: &[u8]) -> Option<Vec<u8>> {
-    let glyphs = chunk_glyphs(chunk)?;
+    merge_glyphs(otf, chunk_glyphs(chunk)?)
+}
+
+/// The core font `otf` with the given outlines replaced, rewriting the font
+/// once however many chunks they came from.
+pub fn merge_glyphs<'a>(
+    otf: &[u8],
+    glyphs: impl IntoIterator<Item = (usize, &'a [u8])>,
+) -> Option<Vec<u8>> {
     let tables = u16_at(otf, 4)?;
     let entry = (0..tables)
         .map(|i| 12 + 16 * i)

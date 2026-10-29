@@ -62,4 +62,26 @@ final class RendererTests: XCTestCase {
         view.setDocument(first); view.layoutIfNeeded()
         XCTAssertEqual(table.numberOfRows(inSection: 0),first.blocks.count)
     }
+
+    @MainActor func testReplacementsReconfigureCellsInPlace() throws {
+        let view = MarkitView(frame: CGRect(x: 0, y: 0, width: 390, height: 800))
+        let table = try XCTUnwrap(view.subviews.compactMap { $0 as? UITableView }.first)
+        func text(_ cell: UITableViewCell?) -> String? {
+            func find(_ node: UIView) -> UITextView? { (node as? UITextView) ?? node.subviews.lazy.compactMap(find).first }
+            return cell.flatMap { find($0.contentView) }?.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        func pane(_ node: UIView) -> MarkitRowsPane? { (node as? MarkitRowsPane) ?? node.subviews.lazy.compactMap(pane).first }
+        view.setDocument(try Markit.parse("Hello\n\n```swift\nlet a = 1\n```\n")); view.layoutIfNeeded()
+        let first = try XCTUnwrap(table.cellForRow(at: IndexPath(row: 0, section: 0)))
+        XCTAssertEqual(text(first), "Hello")
+        XCTAssertNotNil(pane(table))
+        view.setDocument(try Markit.parse("Hello world\n\n```swift\nlet a = 2\n```\n")); view.layoutIfNeeded()
+        let next = try XCTUnwrap(table.cellForRow(at: IndexPath(row: 0, section: 0)))
+        XCTAssertTrue(first === next)
+        XCTAssertEqual(text(next), "Hello world")
+        // A row that changes kind gets the other cell type.
+        view.setDocument(try Markit.parse("```swift\nlet b = 3\n```\n\nTail")); view.layoutIfNeeded()
+        XCTAssertNotNil(pane(try XCTUnwrap(table.cellForRow(at: IndexPath(row: 0, section: 0)))))
+        XCTAssertEqual(text(table.cellForRow(at: IndexPath(row: 1, section: 0))), "Tail")
+    }
 }

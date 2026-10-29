@@ -246,6 +246,14 @@ fn glyph_chunks_restore_every_reachable_outline() {
         assert_eq!(glyphs.len(), count);
         merged = markit::math_glyphs::merge(&merged, &chunk).unwrap();
     }
+    // Merging every chunk at once, back to back, gives the same font.
+    let all: Vec<u8> = (1..=groups).flat_map(chunk).collect();
+    let chunks = markit::math_glyphs::split_chunks(&all).unwrap();
+    assert_eq!(chunks.len(), usize::from(groups));
+    let once = markit::math_glyphs::merge_glyphs(CORE, chunks.into_iter().flatten()).unwrap();
+    assert_eq!(once, merged);
+    assert!(markit::math_glyphs::split_chunks(&all[..all.len() - 1]).is_none());
+    assert!(markit::math_glyphs::split_chunks(&[]).is_none());
     let merged: &'static [u8] = merged.leak();
     let merged = MathFont::from_bytes(merged).unwrap();
     let (a, b) = (full.face(), merged.face());

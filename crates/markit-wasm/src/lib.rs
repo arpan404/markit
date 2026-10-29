@@ -79,16 +79,18 @@ pub fn highlight_grammar(source: &str, language: &str) -> Result<String, JsValue
 
 /// One bit per math glyph group that formulas since the last call needed but
 /// the embedded core font leaves out. For each set bit N the worker fetches
-/// `pkg/math-glyphs-N.bin`, passes it to `addMathGlyphs`, and renders again.
+/// `pkg/math-glyphs-N.bin`, passes them all to one `addMathGlyphs` call, and
+/// renders again.
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(js_name = mathGlyphsMissing)]
 pub fn math_glyphs_missing() -> u32 {
     markit::web_font::take_missing()
 }
 
-/// Merges a math glyph chunk (`pkg/math-glyphs-N.bin`) into the math font.
+/// Merges math glyph chunks (`pkg/math-glyphs-N.bin`, concatenated) into the
+/// math font, rebuilding it once.
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(js_name = addMathGlyphs)]
-pub fn add_math_glyphs(chunk: &[u8]) -> bool {
-    markit::web_font::add_glyphs(chunk)
+pub fn add_math_glyphs(chunks: &[u8]) -> bool {
+    markit::web_font::add_glyphs(chunks)
 }

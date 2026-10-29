@@ -66,22 +66,27 @@ export function decodeWebPatch(bytes) {
 
 /** The Wasm module embeds a core cut of STIX Two Math. The other outlines are
  * split by alphabet or symbol family; the first formula that needs a group
- * loads its chunk once. See `web_font` in Rust. */
+ * fetches its chunk once. All chunks a render needs are merged in one call so
+ * the font is rebuilt once. See `web_font` in Rust. */
 const mathGlyphs = new Map();
-function loadMathGlyphs(missing) {
+async function loadMathGlyphs(missing) {
   const loads = [];
   for (let group = 1; group < 32; group++) {
     if (!(missing & (1 << group))) continue;
     if (!mathGlyphs.has(group)) {
       const load = fetch(new URL(`./pkg/math-glyphs-${group}.bin`, import.meta.url))
         .then(response => { if (!response.ok) throw new Error(`Math glyphs: HTTP ${response.status}`); return response.arrayBuffer(); })
-        .then(bytes => { if (!addMathGlyphs(new Uint8Array(bytes))) throw new Error('Invalid math glyphs'); })
         .catch(error => { mathGlyphs.delete(group); throw error; });
       mathGlyphs.set(group, load);
     }
     loads.push(mathGlyphs.get(group));
   }
-  return Promise.all(loads);
+  const chunks = await Promise.all(loads);
+  const bytes = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.byteLength, 0));
+  let at = 0;
+  for (const chunk of chunks) { bytes.set(new Uint8Array(chunk), at); at += chunk.byteLength; }
+  // Groups that are already merged are skipped in Rust.
+  if (!addMathGlyphs(bytes)) throw new Error('Invalid math glyphs');
 }
 
 async function render(data) {

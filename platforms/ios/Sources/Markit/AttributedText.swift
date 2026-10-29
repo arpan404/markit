@@ -13,11 +13,36 @@ extension UIColor {
     }
 }
 
+/// Values `attributed` would otherwise rebuild for every span of every bound row:
+/// parsed syntax colors, Dynamic Type fonts and decoded math images.
+/// NSCache is thread-safe, and every entry can be rebuilt.
+private enum StyleCache {
+    static let colors = NSCache<NSString, UIColor>()
+    static let fonts = NSCache<NSString, UIFont>()
+    static let images: NSCache<NSString, UIImage> = { let cache = NSCache<NSString, UIImage>(); cache.totalCostLimit = 16 * 1024 * 1024; return cache }()
+
+    static func color(_ hex: String) -> UIColor {
+        if let color = colors.object(forKey: hex as NSString) { return color }
+        let color = UIColor(markitHex: hex); colors.setObject(color, forKey: hex as NSString); return color
+    }
+    /// Fonts depend only on Dynamic Type size and Bold Text among the traits.
+    static func font(_ name: String, traits: UITraitCollection, make: () -> UIFont) -> UIFont {
+        let key = "\(name)|\(traits.preferredContentSizeCategory.rawValue)|\(traits.legibilityWeight.rawValue)" as NSString
+        if let font = fonts.object(forKey: key) { return font }
+        let font = make(); fonts.setObject(font, forKey: key); return font
+    }
+    static func image(_ png: String) -> UIImage? {
+        if let image = images.object(forKey: png as NSString) { return image }
+        guard let data = Data(base64Encoded: png), let image = UIImage(data: data) else { return nil }
+        images.setObject(image, forKey: png as NSString, cost: data.count * 4); return image
+    }
+}
+
 func attributed(_ document: MarkitDocument, range: NSRange, traits: UITraitCollection, candidates: [MarkitSpan]? = nil) -> NSAttributedString {
     let source = document.text as NSString
     let safeRange = NSIntersectionRange(range, NSRange(location: 0, length: source.length))
     let paragraph = NSMutableParagraphStyle(); paragraph.lineSpacing = 3; paragraph.paragraphSpacing = 6
-    let body = UIFont.preferredFont(forTextStyle: .body, compatibleWith: traits)
+    let body = StyleCache.font("body", traits: traits) { UIFont.preferredFont(forTextStyle: .body, compatibleWith: traits) }
     let output = NSMutableAttributedString(string: source.substring(with: safeRange), attributes: [.font: body, .foregroundColor: UIColor.label, .paragraphStyle: paragraph])
     let spans = (candidates ?? document.spans).filter { NSIntersectionRange($0.range, safeRange).length > 0 }
     for span in spans {
@@ -26,12 +51,12 @@ func attributed(_ document: MarkitDocument, range: NSRange, traits: UITraitColle
         switch span.kind {
         case "heading":
             let size: CGFloat = [30, 25, 21, 19, 17, 16][min(5, max(0, (span.level ?? 1) - 1))]
-            output.addAttribute(.font, value: UIFontMetrics.default.scaledFont(for: .systemFont(ofSize: size, weight: .semibold), compatibleWith: traits), range: local)
+            output.addAttribute(.font, value: StyleCache.font("heading\(size)", traits: traits) { UIFontMetrics.default.scaledFont(for: .systemFont(ofSize: size, weight: .semibold), compatibleWith: traits) }, range: local)
         case "code", "code_block", "table":
-            output.addAttribute(.font, value: UIFontMetrics.default.scaledFont(for: .monospacedSystemFont(ofSize: 13, weight: .regular), compatibleWith: traits), range: local)
+            output.addAttribute(.font, value: StyleCache.font("mono", traits: traits) { UIFontMetrics.default.scaledFont(for: .monospacedSystemFont(ofSize: 13, weight: .regular), compatibleWith: traits) }, range: local)
             if span.kind == "code" { output.addAttribute(.backgroundColor, value: UIColor.secondarySystemBackground, range: local) }
         case "syntax":
-            output.addAttribute(.foregroundColor, value: UIColor(markitHex: (traits.userInterfaceStyle == .dark ? span.dark : span.light) ?? "#24292f"), range: local)
+            output.addAttribute(.foregroundColor, value: StyleCache.color((traits.userInterfaceStyle == .dark ? span.dark : span.light) ?? "#24292f"), range: local)
         case "strikethrough": output.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: local)
         case "link": if let url = span.url.flatMap(URL.init(string:)) { output.addAttribute(.link, value: url, range: local) }
         case "reference":
@@ -49,7 +74,7 @@ func attributed(_ document: MarkitDocument, range: NSRange, traits: UITraitColle
             let color: UIColor? = span.change == "addition" ? .systemGreen : span.change == "deletion" ? .systemRed : nil
             if let color { output.addAttribute(.backgroundColor, value: color.withAlphaComponent(0.12), range: local) }
         case "math":
-            if let data = span.png.flatMap({ Data(base64Encoded: $0) }), let image = UIImage(data: data), local.length == 1 {
+            if local.length == 1, let image = span.png.flatMap(StyleCache.image) {
                 let attachment = NSTextAttachment()
                 attachment.image = image.withTintColor(.label.resolvedColor(with: traits), renderingMode: .alwaysOriginal)
                 let scale = body.pointSize / 16

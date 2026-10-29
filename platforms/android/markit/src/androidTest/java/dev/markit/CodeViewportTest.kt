@@ -111,4 +111,24 @@ class CodeViewportTest {
             } finally { view.close() }
         }
     }
+
+    @Test fun replacementsRebindBlockViewsInPlace() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.runOnMainSync {
+            val context = ContextThemeWrapper(instrumentation.targetContext, android.R.style.Theme_Material_Light_NoActionBar)
+            val view = MarkitView(context)
+            fun layout() { view.measure(View.MeasureSpec.makeMeasureSpec(1080,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(2200,View.MeasureSpec.EXACTLY)); view.layout(0,0,1080,2200) }
+            fun firstText() = ((view.findViewHolderForAdapterPosition(0)!!.itemView as ViewGroup).getChildAt(0) as TextView)
+            try {
+                view.setDocument(Markit.parse("Hello\n\n```kotlin\nval a = 1\n```\n")); layout()
+                val text = firstText()
+                assertEquals("Hello",text.text.toString().trim())
+                view.setDocument(Markit.parse("Hello world\n\n```kotlin\nval a = 2\n```\n")); layout()
+                assertSame(text,firstText())
+                assertEquals("Hello world",firstText().text.toString().trim())
+                view.setDocument(Markit.parse("```kotlin\nval b = 3\n```\n\nTail")); layout()
+                assertEquals("Tail",((view.findViewHolderForAdapterPosition(1)!!.itemView as ViewGroup).getChildAt(0) as TextView).text.toString().trim())
+            } finally { view.close() }
+        }
+    }
 }
