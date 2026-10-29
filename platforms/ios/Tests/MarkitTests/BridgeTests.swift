@@ -45,4 +45,16 @@ final class BridgeTests: XCTestCase {
         XCTAssertTrue(spans.contains { $0.kind == "task" && $0.offset == offset && $0.checked == false })
         XCTAssertTrue(spans.contains { $0.kind == "alert" && $0.alert == "note" })
     }
+    func testAgentFlavourParsesFootnotesButLeavesMentionsAsText() throws {
+        let source = "Step #12 for @octocat[^1]\n\n[^1]: The note.\n"
+        let document = try Markit.parse(source, flavor: .agent)
+        XCTAssertTrue(document.spans.contains { $0.kind == "footnote_reference" && $0.number == 1 })
+        XCTAssertFalse(document.spans.contains { $0.kind == "reference" })
+        XCTAssertTrue(document.text.contains("Step #12 for @octocat"))
+        XCTAssertTrue(try Markit.parse(source, flavor: .github).spans.contains { $0.kind == "reference" && $0.reference_kind == "mention" })
+        let stream = MarkitStream(flavor: .agent)
+        let spans = try stream.append(source, finalized: true).blocks.flatMap { $0.document.spans }
+        XCTAssertTrue(spans.contains { $0.kind == "footnote_reference" })
+        XCTAssertFalse(spans.contains { $0.kind == "reference" })
+    }
 }

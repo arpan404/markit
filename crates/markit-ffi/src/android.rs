@@ -49,7 +49,7 @@ pub extern "system" fn Java_dev_markit_Markit_nativeRender(
 ) -> jstring {
     render(&mut env, source, format, 0)
 }
-/// `flavor`: 0 default, 1 GitHub. Applies to format 0 (code requests ignore it).
+/// `flavor`: 0 default, 1 GitHub, 2 agent. Applies to format 0 (code requests ignore it).
 #[no_mangle]
 pub extern "system" fn Java_dev_markit_Markit_nativeRenderFlavor(
     mut env: JNIEnv,
@@ -100,7 +100,7 @@ pub extern "system" fn Java_dev_markit_Markit_nativeCreateStream(
 ) -> jlong {
     create_stream(&mut env, 0)
 }
-/// `flavor`: 0 default, 1 GitHub.
+/// `flavor`: 0 default, 1 GitHub, 2 agent.
 #[no_mangle]
 pub extern "system" fn Java_dev_markit_Markit_nativeCreateStreamFlavor(
     mut env: JNIEnv,

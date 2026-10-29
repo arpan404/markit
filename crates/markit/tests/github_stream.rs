@@ -1,5 +1,5 @@
-//! A GitHub flavour stream shows, after every append, exactly what a
-//! one-shot render of the same text shows: HTML, native text and spans.
+//! A GitHub or agent flavour stream shows, after every append, exactly what
+//! a one-shot render of the same text shows: HTML, native text and spans.
 use markit::{parse_with, render_html_with, Document, Flavor, RenderedBlock, Span, StreamRenderer};
 use std::sync::Arc;
 
@@ -41,9 +41,9 @@ fn sorted(document: &Document) -> Vec<Span> {
     document.spans.clone()
 }
 
-fn check_prefixes(source: &str, cuts: impl Iterator<Item = usize>) {
-    let mut html_stream = StreamRenderer::new_html().with_flavor(Flavor::Github);
-    let mut both_stream = StreamRenderer::new().with_flavor(Flavor::Github);
+fn check_prefixes(source: &str, cuts: impl Iterator<Item = usize>, flavor: Flavor) {
+    let mut html_stream = StreamRenderer::new_html().with_flavor(flavor);
+    let mut both_stream = StreamRenderer::new().with_flavor(flavor);
     let mut html_blocks = Vec::new();
     let mut both_blocks = Vec::new();
     let mut at = 0;
@@ -57,7 +57,7 @@ fn check_prefixes(source: &str, cuts: impl Iterator<Item = usize>) {
         apply(&mut both_blocks, both_stream.append(delta, finalized));
         at = cut;
         let prefix = &source[..cut];
-        let expected = render_html_with(prefix, Flavor::Github);
+        let expected = render_html_with(prefix, flavor);
         let html: String = html_blocks
             .iter()
             .map(|block| block.html.as_str())
@@ -68,7 +68,7 @@ fn check_prefixes(source: &str, cuts: impl Iterator<Item = usize>) {
             .map(|block| block.html.as_str())
             .collect();
         assert_eq!(html, expected, "html (both) after {prefix:?}");
-        let document = parse_with(prefix, Flavor::Github);
+        let document = parse_with(prefix, flavor);
         let (text, spans) = joined(&both_blocks);
         assert_eq!(text, document.text, "text after {prefix:?}");
         assert_eq!(spans, sorted(&document), "spans after {prefix:?}");
@@ -78,7 +78,14 @@ fn check_prefixes(source: &str, cuts: impl Iterator<Item = usize>) {
 #[test]
 fn every_character_boundary_matches_a_one_shot_render() {
     for source in SOURCES {
-        check_prefixes(source, 0..source.len());
+        check_prefixes(source, 0..source.len(), Flavor::Github);
+    }
+}
+
+#[test]
+fn agent_flavour_appended_by_character_matches_a_one_shot_render() {
+    for source in SOURCES {
+        check_prefixes(source, 0..source.len(), Flavor::Agent);
     }
 }
 
@@ -86,9 +93,9 @@ fn every_character_boundary_matches_a_one_shot_render() {
 fn line_and_word_sized_appends_match_a_one_shot_render() {
     for source in SOURCES {
         let lines = source.match_indices('\n').map(|(at, _)| at + 1);
-        check_prefixes(source, lines);
+        check_prefixes(source, lines, Flavor::Github);
         let words = source.match_indices(' ').map(|(at, _)| at);
-        check_prefixes(source, words);
+        check_prefixes(source, words, Flavor::Github);
     }
 }
 

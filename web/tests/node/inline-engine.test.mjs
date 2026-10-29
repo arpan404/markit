@@ -79,3 +79,12 @@ test('the inline engine renders the GitHub flavour and reports ticked task boxes
   assert.equal(plain.element.querySelector('.mk-alert'), null);
   renderer.destroy(); plain.renderer.destroy();
 });
+
+test('the inline engine passes the agent flavour through: footnotes drawn, issue numbers left as text', async () => {
+  const { element, renderer } = mount({ flavor: 'agent' });
+  await renderer.render('Step #12 for @octocat[^1]\n\n[^1]: The note.\n');
+  assert.equal(element.querySelectorAll('[data-markit-footnote="1"]').length, 1);
+  assert.equal(element.querySelector('[data-markit-reference]'), null);
+  assert.match(element.querySelector('p').textContent, /^Step #12 for @octocat/);
+  renderer.destroy();
+});

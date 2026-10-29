@@ -93,7 +93,7 @@ fn text_event(text: CowStr<'_>, mode: TextMode) -> Option<Event<'_>> {
         return None;
     }
     let Some(parts) = super::text::parts(&text, mode) else {
-        if mode == TextMode::Prose {
+        if matches!(mode, TextMode::Prose { .. }) {
             return Some(Event::Text(text));
         }
         // Inside a raw `<a>` or `<code>` there is no Markdown link around the
@@ -199,6 +199,7 @@ fn push_action(action: &Action, out: &mut String) {
 pub(crate) fn render_section(
     prepared: &crate::math::Prepared<'_>,
     footnotes: &Footnotes<'_>,
+    flavor: crate::Flavor,
     output: &mut String,
     code: &mut CodeRenderer<'_>,
 ) {
@@ -209,7 +210,7 @@ pub(crate) fn render_section(
     for definition in &footnotes.definitions {
         let number = definition.number;
         let mut content = String::new();
-        let mut front = Front::definition(footnotes);
+        let mut front = Front::definition(footnotes, flavor);
         render(
             prepared,
             definition.events.iter().cloned(),

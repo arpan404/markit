@@ -67,14 +67,17 @@ public struct MarkitSpan: Decodable, Sendable {
     public var range: NSRange { NSRange(location: start, length: end - start) }
 }
 
-/// Which dialect a render uses. `.standard` is agent prose (raw HTML shows as
-/// text); `.github` is for PR, issue and comment bodies.
+/// Which dialect a render uses. `.standard` is the plainest (raw HTML shows
+/// as text); `.github` is for PR, issue and comment bodies; `.agent` is for
+/// coding agents' answers: everything `.github` draws except `@mention`,
+/// `#123` and commit references, which stay text.
 public enum MarkitFlavor: UInt32, Sendable {
     case standard = 0
     case github = 1
+    case agent = 2
 }
 /// A link into the host's world. `kind` is `file`, `thread` or `pull_request`
-/// from agent prose; the GitHub flavour adds `mention` (`login` or
+/// in any flavour; the GitHub flavour (not `.agent`) adds `mention` (`login` or
 /// `org/team`), `issue` (`#123` or `owner/repo#123`), `commit` (a SHA or
 /// `owner/repo@sha`) and, in inline views, `footnote` (the footnote's label).
 public struct MarkitReference: Sendable, Equatable {

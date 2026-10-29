@@ -13,13 +13,16 @@ typedef struct { uint8_t *data; size_t len; uint32_t status; } MarkitBuffer;
    status 0: success, 1: invalid UTF-8, 2: invalid argument, 3: panic.
    Output is length-delimited, not NUL-terminated. Free exactly once. */
 MarkitBuffer markit_render(const uint8_t *source, size_t len, uint32_t format);
-/* Flavours. DEFAULT is agent prose: raw HTML shows as text. GITHUB is for PR,
+/* Flavours. DEFAULT is the plainest: raw HTML shows as text. GITHUB is for PR,
    issue and comment bodies: footnotes, > [!NOTE] alerts, an allowlisted HTML
    subset whose images and videos the host resolves, task spans carrying their
    UTF-16 source offset, @mention / #123 / commit references, emoji shortcodes
-   and ```mermaid diagram spans. See docs/integration.md. */
+   and ```mermaid diagram spans. AGENT is coding agents' answers: everything
+   GITHUB draws except the @mention / #123 / commit references, which stay
+   text. See docs/integration.md. */
 #define MARKIT_FLAVOR_DEFAULT 0u
 #define MARKIT_FLAVOR_GITHUB 1u
+#define MARKIT_FLAVOR_AGENT 2u
 /* markit_render in a flavour (formats 0 and 1; code requests ignore it).
    Status 2 for an unknown flavour. */
 MarkitBuffer markit_render_flavor(const uint8_t *source, size_t len, uint32_t format, uint32_t flavor);
@@ -34,7 +37,7 @@ MarkitBuffer markit_render_binary(const uint8_t *source, size_t len);
 /* markit_render_binary in a flavour. Status 2 for an unknown flavour. GitHub
    documents use MKBP span tags 23-30 (alert, footnote_reference,
    footnote_definition, task, diagram, video, html, dark_image); see
-   docs/binary-transport.md. */
+   docs/binary-transport.md. AGENT documents use the same tags. */
 MarkitBuffer markit_render_binary_flavor(const uint8_t *source, size_t len, uint32_t flavor);
 MarkitBuffer markit_code_binary(const MarkitCodeRequest *request);
 void markit_buffer_free(MarkitBuffer buffer);

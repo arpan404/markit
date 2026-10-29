@@ -119,7 +119,7 @@ fn text_item(
     builder: &mut Builder,
 ) {
     let Some(parts) = super::text::parts(&text, mode) else {
-        if mode == TextMode::Prose {
+        if matches!(mode, TextMode::Prose { .. }) {
             builder.event(Event::Text(text), prepared);
         } else {
             builder.text(&text);
@@ -169,6 +169,7 @@ fn text_item(
 pub(crate) fn build_section(
     prepared: &crate::math::Prepared<'_>,
     footnotes: &Footnotes<'_>,
+    flavor: crate::Flavor,
     builder: &mut Builder,
 ) {
     if footnotes.is_empty() {
@@ -180,7 +181,7 @@ pub(crate) fn build_section(
         builder.newline();
         let start = builder.position;
         builder.start(Tag::Item);
-        let mut front = Front::definition(footnotes);
+        let mut front = Front::definition(footnotes, flavor);
         build(
             prepared,
             definition.events.iter().cloned(),

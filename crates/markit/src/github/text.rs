@@ -27,7 +27,7 @@ pub(crate) fn parts(text: &str, mode: TextMode) -> Option<Vec<Part>> {
             let found = segments(text, false);
             (!found.is_empty()).then(|| found.into_iter().map(Part::Segment).collect())
         }
-        TextMode::Prose => {
+        TextMode::Prose { references } => {
             let links = crate::html::bare_links(text);
             let mut parts = Vec::new();
             let mut at = 0;
@@ -36,7 +36,7 @@ pub(crate) fn parts(text: &str, mode: TextMode) -> Option<Vec<Part>> {
                 .map(|(range, url)| (range, Some(url)))
                 .chain(std::iter::once((text.len()..text.len(), None)))
             {
-                for segment in segments(&text[at..range.start], true) {
+                for segment in segments(&text[at..range.start], references) {
                     parts.push(Part::Segment(shift(segment, at)));
                 }
                 at = range.end;

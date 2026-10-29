@@ -69,7 +69,7 @@ pub unsafe extern "C" fn markit_render_binary(source: *const u8, len: usize) -> 
     unsafe { markit_render_binary_flavor(source, len, 0) }
 }
 
-/// [`markit_render_binary`] in a flavour: 0 default, 1 GitHub. Unknown
+/// [`markit_render_binary`] in a flavour: 0 default, 1 GitHub, 2 agent. Unknown
 /// flavours return status 2.
 ///
 /// # Safety
@@ -131,7 +131,7 @@ pub unsafe extern "C" fn markit_render(source: *const u8, len: usize, format: u3
     unsafe { markit_render_flavor(source, len, format, 0) }
 }
 
-/// [`markit_render`] in a flavour: 0 default, 1 GitHub. The flavour applies
+/// [`markit_render`] in a flavour: 0 default, 1 GitHub, 2 agent. The flavour applies
 /// to formats 0 and 1; code requests ignore it. Unknown flavours return
 /// status 2.
 ///
@@ -193,7 +193,7 @@ pub extern "C" fn markit_stream_new() -> *mut markit::StreamRenderer {
     markit_stream_new_flavor(0)
 }
 
-/// A native stream in a flavour: 0 default, 1 GitHub. Null for an unknown
+/// A native stream in a flavour: 0 default, 1 GitHub, 2 agent. Null for an unknown
 /// flavour. Free with markit_stream_free.
 #[no_mangle]
 pub extern "C" fn markit_stream_new_flavor(flavor: u32) -> *mut markit::StreamRenderer {
@@ -470,6 +470,28 @@ mod tests {
         let handle = markit_stream_new_flavor(1);
         let patch = read(unsafe { markit_stream_append(handle, source.as_ptr(), source.len(), 1) });
         assert!(str::from_utf8(&patch).unwrap().contains("\"html\""));
+        unsafe { markit_stream_free(handle) };
+    }
+
+    #[test]
+    fn agent_flavour_code_draws_footnotes_but_leaves_mentions_as_text() {
+        let source = "Note[^1] for @octocat #12\n\n[^1]: Yes.\n";
+        let read = |buffer: MarkitBuffer| {
+            assert_eq!(buffer.status, 0);
+            let bytes = unsafe { slice::from_raw_parts(buffer.data, buffer.len) }.to_vec();
+            unsafe { markit_buffer_free(buffer) };
+            String::from_utf8(bytes).unwrap()
+        };
+        let html = read(unsafe { markit_render_flavor(source.as_ptr(), source.len(), 1, 2) });
+        assert!(html.contains("mk-footnotes"), "{html}");
+        assert!(html.contains("@octocat #12"), "{html}");
+        assert!(!html.contains("mk-mention"), "{html}");
+        let json = read(unsafe { markit_render_flavor(source.as_ptr(), source.len(), 0, 2) });
+        assert!(json.contains("\"footnote_reference\"") && !json.contains("\"mention\""));
+        let handle = markit_stream_new_flavor(2);
+        assert!(!handle.is_null());
+        let patch = read(unsafe { markit_stream_append(handle, source.as_ptr(), source.len(), 1) });
+        assert!(patch.contains("footnote_reference") && !patch.contains("\"mention\""));
         unsafe { markit_stream_free(handle) };
     }
 
