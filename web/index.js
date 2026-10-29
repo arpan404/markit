@@ -81,6 +81,34 @@ export function terminateMarkitWorkers() {
   engines.clear();
 }
 
+function sameAttributes(a, b) {
+  if (a.attributes.length !== b.attributes.length) return false;
+  for (const { name, value } of a.attributes) if (b.getAttribute(name) !== value) return false;
+  return true;
+}
+/** Makes `target`'s children equal to `source`'s, moving `source`'s nodes.
+ * Equal leading and trailing nodes stay; one changed node between them is
+ * patched recursively (text gets new data); anything else is replaced. */
+function patchChildren(target, source) {
+  const before = target.childNodes, after = source.childNodes;
+  let head = 0, tail = 0;
+  const shared = Math.min(before.length, after.length);
+  while (head < shared && before[head].isEqualNode(after[head])) head++;
+  while (tail < shared - head && before[before.length - 1 - tail].isEqualNode(after[after.length - 1 - tail])) tail++;
+  if (before.length - head - tail === 1 && after.length - head - tail === 1) {
+    const a = before[head], b = after[head];
+    if (a.nodeType === Node.TEXT_NODE && b.nodeType === Node.TEXT_NODE) { a.data = b.data; return; }
+    if (a.nodeType === Node.ELEMENT_NODE && b.nodeType === Node.ELEMENT_NODE && a.namespaceURI === b.namespaceURI && a.localName === b.localName && sameAttributes(a, b)) {
+      patchChildren(a, b);
+      return;
+    }
+  }
+  const end = before[before.length - tail] ?? null;
+  for (let i = before.length - tail - 1; i >= head; i--) before[i].remove();
+  const fresh = [...after].slice(head, after.length - tail);
+  for (const node of fresh) target.insertBefore(node, end);
+}
+
 /** One in-flight render and one queued replacement keep typing ahead of parsing.
  * Parsing and highlighting always execute in the Rust WebAssembly worker. */
 export class MarkitRenderer {
@@ -192,7 +220,7 @@ export class MarkitRenderer {
     if (this.#destroyed) return;
     let from = patch.replace_from, blocks = patch.blocks;
     const open = this.#element.children[from];
-    if (open && blocks.length && this.#grow(open, blocks[0])) { from++; blocks = blocks.slice(1); }
+    if (open && blocks.length && (this.#grow(open, blocks[0]) || this.#morph(open, blocks[0]))) { from++; blocks = blocks.slice(1); }
     while (this.#element.children.length > from) {
       const block = this.#element.lastElementChild;
       for (const pre of block.querySelectorAll('pre')) {
@@ -218,6 +246,21 @@ export class MarkitRenderer {
     if (this.#options.resolveImage) {
       for (const image of this.#element.querySelectorAll('img[data-markit-src]:not([data-requested])')) this.#resolveImage(image);
     }
+  }
+  /** An open block without code or images is patched in place: unchanged
+   * leading nodes stay, a changed last text node gets new text, and only the
+   * changed tail is replaced. Streaming prose then restyles and relays out
+   * the new words, not the whole block. The DOM ends up as `innerHTML` would. */
+  #morph(block, payload) {
+    const previous = this.#payloads.get(block);
+    if (!previous || previous.codes?.length || payload.codes?.length || payload.html.includes('<img') || previous.html.includes('<img')) return false;
+    if (previous.html !== payload.html) {
+      const next = document.createElement('div');
+      next.innerHTML = payload.html;
+      patchChildren(block, next);
+    }
+    this.#payloads.set(block, payload);
+    return true;
   }
   /** An open block whose markup is unchanged and whose code fences only changed
    * text keeps its element; only code lines from the first changed line are rebuilt.

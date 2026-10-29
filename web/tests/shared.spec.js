@@ -155,3 +155,25 @@ test('streaming renders are paced; the final render is not', async ({ page }) =>
   expect(result.final).toBe(false);
   expect(result.html).toContain('word29 <strong>end</strong>');
 });
+
+test('a streaming prose block is patched in place and matches a fresh render', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const { MarkitRenderer } = await import('/index.js');
+    const make = () => new MarkitRenderer(document.body.appendChild(document.createElement('div')), { streamInterval: 0 });
+    const live = make(), fresh = make();
+    const text = '- first item with **bold**\n- second $x^2$ item\n- third item, a [link](https://example.com) and more words';
+    let first;
+    for (let at = 4; at <= text.length; at += 5) {
+      await live.render(text.slice(0, at), { finalized: false });
+      // Once the list has two items, its first item is never rebuilt.
+      if (at > 60) first ??= document.querySelector('body > div.markit li');
+    }
+    await live.render(text, { finalized: false });
+    await fresh.render(text, { finalized: false });
+    const [a, b] = document.querySelectorAll('body > div.markit');
+    return { same: a.innerHTML === b.innerHTML, kept: a.querySelector('li') === first, html: a.innerHTML };
+  });
+  expect(result.same).toBe(true);
+  expect(result.kept).toBe(true);
+  expect(result.html).toContain('<strong>bold</strong>');
+});
