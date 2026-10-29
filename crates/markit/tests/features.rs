@@ -261,6 +261,7 @@ fn streaming_reuses_settled_blocks_and_reset_discards_old_source() {
 }
 
 #[test]
+#[allow(clippy::chunks_exact_to_as_chunks)]
 fn compact_highlighting_matches_owned_tokens_and_native_utf16_spans() {
     for (source, language) in [
         ("const x = \"😀\";\n/* café */ fn()", "ts"),
@@ -281,8 +282,6 @@ fn compact_highlighting_matches_owned_tokens_and_native_utf16_spans() {
         assert_eq!(String::from_utf16(&language_units).unwrap(), code.language);
         let mut offset = 0;
         // `as_chunks` is stable on current CI toolchains and unstable on 1.83.
-        #[allow(unknown_lints)]
-        #[allow(clippy::chunks_exact_to_as_chunks)]
         let runs: Vec<_> = packed[language_end..].chunks_exact(3).collect();
         assert_eq!(runs.len(), code.tokens.len());
         for (run, token) in runs.iter().zip(&code.tokens) {
