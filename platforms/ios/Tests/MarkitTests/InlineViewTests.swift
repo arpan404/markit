@@ -69,7 +69,7 @@ final class InlineViewTests: XCTestCase {
         view.layoutIfNeeded()
         let collapsed = view.height(for: 320)
         let toggle = try XCTUnwrap(buttons(in: view).first { $0.title(for: .normal) == "Show all 6 lines" })
-        toggle.sendActions(for: .touchUpInside)
+        tap(toggle)
         XCTAssertGreaterThan(view.height(for: 320), collapsed)
         XCTAssertEqual(toggle.title(for: .normal), "Collapse")
     }
@@ -99,4 +99,16 @@ final class InlineViewTests: XCTestCase {
         return result
     }
 }
+
+/// Runs a button's touch-up actions. `sendActions` dispatches nothing in a test without a host
+/// app (UIApplication is nil), so the targets are invoked directly.
+@MainActor private func tap(_ button: UIButton) {
+    for target in button.allTargets {
+        let object = target.base as AnyObject
+        for action in button.actions(forTarget: object, forControlEvent: .touchUpInside) ?? [] {
+            _ = object.perform(Selector(action), with: button)
+        }
+    }
+}
+
 #endif
