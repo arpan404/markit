@@ -22,9 +22,9 @@ fn large_typescript() -> String {
 /// (UTF-16 end, light colour) of each packed run.
 fn packed_runs(words: &[u32]) -> Vec<(u32, u32)> {
     let first = 3 + words[2] as usize;
-    words[first..]
-        .chunks_exact(3)
-        .map(|run| (run[0], run[1]))
+    (first..words.len())
+        .step_by(3)
+        .map(|at| (words[at], words[at + 1]))
         .collect()
 }
 
