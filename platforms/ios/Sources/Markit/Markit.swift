@@ -70,6 +70,9 @@ public enum Markit {
     public static func parse(_ source: String) throws -> MarkitDocument {
         try request(Array(source.utf8), format: 0)
     }
+    /// Colours the whole source (up to 8 MiB of UTF-8; larger sources stay plain).
+    /// Unknown non-empty languages use a generic lexer; "" and "text" stay plain.
+    /// Large files decode faster through `MarkitBinaryPlan.highlight`.
     public static func highlight(_ source: String, language: String, fullGrammar: Bool = false) throws -> MarkitDocument {
         let data = try JSONSerialization.data(withJSONObject: ["source": source, "language": language])
         return try request(Array(data), format: fullGrammar ? 3 : 2)

@@ -17,6 +17,9 @@ export interface RenderPatch { replace_from: number; blocks: string[]; finalized
 export class MarkitRenderer {
   constructor(element: HTMLElement, options?: MarkitOptions);
   render(source: string, options?: { finalized?: boolean }): Promise<RenderPatch | { superseded: true }>;
+  /** Colours the whole source, up to 8 MiB of UTF-8; larger sources come back as one plain token
+   * with `plain: true`. Unknown non-empty languages use a generic lexer; `''` and `'text'` stay plain.
+   * `grammar: true` uses the optional Sublime grammars, which keep their own smaller limits. */
   highlight(source: string, language: string, options?: { grammar?: boolean }): Promise<HighlightedCode>;
   destroy(): void;
 }

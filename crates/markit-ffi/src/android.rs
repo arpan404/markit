@@ -64,7 +64,8 @@ pub extern "system" fn Java_dev_markit_Markit_nativeRender(
                 markit::code_document_grammar(source, language)
                     .ok_or("Build with the grammars feature")?
             } else {
-                markit::code_document(source, language)
+                // Byte-identical JSON streamed from compact runs.
+                return Ok(markit::code_document_json(source, language));
             }
         } else if format == 0 {
             markit::parse(&source)

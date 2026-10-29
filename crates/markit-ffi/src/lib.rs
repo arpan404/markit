@@ -133,15 +133,16 @@ pub unsafe extern "C" fn markit_render(source: *const u8, len: usize, format: u3
             else {
                 return MarkitBuffer::error(2);
             };
-            let document = if format == 3 {
+            if format == 3 {
                 let Some(document) = markit::code_document_grammar(source, language) else {
                     return MarkitBuffer::error(2);
                 };
-                document
+                serde_json::to_string(&document).expect("serializable document")
             } else {
-                markit::code_document(source, language)
-            };
-            serde_json::to_string(&document).expect("serializable document")
+                // Streams spans from compact runs: a whole large file is coloured
+                // without building a `Document` first. Byte-identical JSON.
+                markit::code_document_json(source, language)
+            }
         } else if format == 0 {
             markit::render_document_json(text)
         } else {

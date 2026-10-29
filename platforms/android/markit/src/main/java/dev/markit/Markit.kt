@@ -52,6 +52,7 @@ object Markit {
     @JvmStatic external fun nativeAppendPatch(handle: Long, delta: String, finalized: Boolean): ByteArray
     @JvmStatic external fun nativeFreeStream(handle: Long)
     fun parse(source: String): MarkitDocument = MarkitDocument.decode(JSONObject(nativeRender(source, 0)))
+    /** Colours the whole source (up to 8 MiB of UTF-8; larger sources stay plain). Unknown non-empty languages use a generic lexer; "" and "text" stay plain. */
     fun highlight(source: String, language: String, fullGrammar: Boolean = false): MarkitDocument = MarkitDocument.decode(JSONObject(nativeRender(JSONObject().put("source", source).put("language", language).toString(), if (fullGrammar) 3 else 2)))
 }
 /**

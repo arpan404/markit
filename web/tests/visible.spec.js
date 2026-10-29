@@ -10,7 +10,8 @@ test('packed visible rows match Rust HTML for Unicode, multiline tokens, diff an
       ['-old\n+new\n@@ header\n context', 'diff'],
       ['', 'rust'], ['\n\n', 'unknown'],
       ['<x a="&">\r\ntext\n', 'html'],
-      ['let x = 1;\n'.repeat(5000), 'rust'],
+      // 8,000 runs: the largest fence that renderHtml still colours (its budget is 8,192).
+      ['let x = 1;\n'.repeat(2000), 'rust'],
     ];
     const failures = [];
     for (const [source, language] of fixtures) {

@@ -103,6 +103,33 @@ test('compact worker highlighting exactly matches legacy tokens and colors', asy
   expect(results.every(result => result.equal && result.preserved)).toBe(true);
 });
 
+test('worker highlighting colours a whole large file and unknown languages', async ({ page }) => {
+  await page.goto('/'); await expect(page.getByRole('status')).toContainText('Ready');
+  const result = await page.evaluate(async () => {
+    // About 680 KB and 160k runs: far past the 8,192-run fence budget.
+    const source = 'const x = 1; // note\n'.repeat(32000) + 'return "end";\n';
+    const large = await window.renderer.highlight(source, 'ts');
+    const unknown = await window.renderer.highlight('# note\nvalue = "text" 42\n', 'conf-unknown');
+    const colour = (code, text) => code.tokens.find(token => token.text === text)?.light;
+    return {
+      plain: large.plain,
+      runs: large.tokens.length,
+      preserved: large.tokens.map(t => t.text).join('') === source,
+      last: large.tokens.at(-2).text + '|' + large.tokens.at(-2).light,
+      unknownPlain: unknown.plain,
+      comment: colour(unknown, '# note'),
+      string: colour(unknown, '"text"'),
+    };
+  });
+  expect(result.plain).toBe(false);
+  expect(result.runs).toBeGreaterThan(100000);
+  expect(result.preserved).toBe(true);
+  expect(result.last).toBe('"end"|#0a3069');
+  expect(result.unknownPlain).toBe(false);
+  expect(result.comment).toBe('#6e7781');
+  expect(result.string).toBe('#0a3069');
+});
+
 test('unavailable WebGPU keeps source, syntax colors, and copying on the text backend', async ({page}) => {
   await page.evaluate(async()=>{
     Object.defineProperty(navigator,'gpu',{value:{requestAdapter:async()=>null},configurable:true});
