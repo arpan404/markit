@@ -5,7 +5,7 @@ use std::{
     borrow::Cow,
     cell::{OnceCell, RefCell},
     rc::Rc,
-    sync::{Arc, OnceLock},
+    sync::Arc,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -18,54 +18,54 @@ pub struct MathVisual {
 /// Native builds embed latex-rust's full STIX Two Math face.
 #[cfg(not(target_arch = "wasm32"))]
 fn font() -> Option<&'static MathFont> {
-    static FONT: OnceLock<MathFont> = OnceLock::new();
+    static FONT: std::sync::OnceLock<MathFont> = std::sync::OnceLock::new();
     Some(FONT.get_or_init(|| MathFont::stix_two_math().expect("bundled STIX font is valid")))
 }
 
 /// Wasm embeds a core cut of the same face instead of the 839 KB original; see
-/// `scripts/math-font-core.py`. All of its metrics equal the full face, so every
+/// `scripts/math-font-web.py`. All of its metrics equal the full face, so every
 /// layout is identical, but only the glyphs in `math-core-glyphs.txt` keep their
-/// outlines. A formula that would draw another glyph is not drawn: it sets
-/// [`web_font::take_missing`] so the host can load the full face with
-/// [`web_font::install_full`] and render again.
+/// outlines. The others are split into groups by alphabet or symbol family. A
+/// formula that would draw a glyph whose group is not loaded is not drawn: it
+/// adds the group to [`web_font::take_missing`] so the host can fetch
+/// `math-glyphs-N.bin`, merge it with [`web_font::add_glyphs`], and render again.
 #[cfg(target_arch = "wasm32")]
 pub mod web_font {
     use super::*;
     use std::cell::Cell;
 
     static CORE_OTF: &[u8] = include_bytes!("../assets/math-core.otf");
-    /// One bit per glyph id: set when the core face keeps that glyph's outline.
-    static CORE_GLYPHS: &[u8] = include_bytes!("../assets/math-core-glyphs.bin");
-    static CORE: OnceLock<MathFont> = OnceLock::new();
-    static FULL: OnceLock<MathFont> = OnceLock::new();
+    /// One byte per glyph id: 0 when the core face draws the glyph, else its group.
+    static GROUPS: &[u8] = include_bytes!("../assets/math-core-groups.bin");
     thread_local! {
-        static MISSING: Cell<bool> = const { Cell::new(false) };
-    }
-
-    fn core() -> &'static MathFont {
-        CORE.get_or_init(|| MathFont::from_bytes(CORE_OTF).expect("core math font is valid"))
+        static FACE: Cell<Option<&'static MathFont>> = const { Cell::new(None) };
+        static BYTES: Cell<&'static [u8]> = const { Cell::new(CORE_OTF) };
+        static LOADED: Cell<u32> = const { Cell::new(1) };
+        static MISSING: Cell<u32> = const { Cell::new(0) };
     }
 
     pub(super) fn font() -> Option<&'static MathFont> {
-        Some(FULL.get().unwrap_or_else(core))
+        Some(FACE.with(|face| {
+            face.get().unwrap_or_else(|| {
+                let font: &'static MathFont = Box::leak(Box::new(
+                    MathFont::from_bytes(CORE_OTF).expect("core math font is valid"),
+                ));
+                face.set(Some(font));
+                font
+            })
+        }))
     }
 
     /// Whether `tree` draws only glyphs whose outlines the current face holds.
     pub(super) fn drawable(tree: &MathBox) -> bool {
-        if FULL.get().is_some() {
-            return true;
-        }
-        let mut ok = true;
+        let loaded = LOADED.with(Cell::get);
+        let mut missing = 0;
         visit(tree, &mut |gid| {
-            let gid = usize::from(gid);
-            ok &= CORE_GLYPHS
-                .get(gid / 8)
-                .is_some_and(|bits| bits & (1 << (gid % 8)) != 0);
+            let group = GROUPS.get(usize::from(gid)).copied().unwrap_or(0);
+            missing |= (1u32 << group) & !loaded;
         });
-        if !ok {
-            MISSING.with(|missing| missing.set(true));
-        }
-        ok
+        MISSING.with(|cell| cell.set(cell.get() | missing));
+        missing == 0
     }
 
     fn visit(node: &MathBox, f: &mut impl FnMut(u16)) {
@@ -81,21 +81,38 @@ pub mod web_font {
         }
     }
 
-    /// True once since the last call if a formula needed the full face.
-    pub fn take_missing() -> bool {
-        MISSING.with(|missing| missing.replace(false))
+    /// One bit per glyph group that formulas needed since the last call.
+    pub fn take_missing() -> u32 {
+        MISSING.with(|missing| missing.replace(0))
     }
 
-    /// Installs the full STIX Two Math face and drops formulas cached with the core face.
-    pub fn install_full(bytes: Vec<u8>) -> bool {
-        if FULL.get().is_none() {
-            let Ok(font) = MathFont::from_bytes(Vec::leak(bytes)) else {
-                return false;
-            };
-            let _ = FULL.set(font);
+    /// Merges a glyph chunk into the face and drops formulas cached without it.
+    pub fn add_glyphs(chunk: &[u8]) -> bool {
+        let Some(&(gid, _)) = crate::math_glyphs::chunk_glyphs(chunk)
+            .as_ref()
+            .and_then(|g| g.first())
+        else {
+            return false;
+        };
+        let group = GROUPS.get(gid).copied().unwrap_or(0);
+        if group == 0 || group >= 32 {
+            return false;
         }
+        if LOADED.with(Cell::get) & (1 << group) != 0 {
+            return true;
+        }
+        let Some(bytes) = crate::math_glyphs::merge(BYTES.with(Cell::get), chunk) else {
+            return false;
+        };
+        let bytes: &'static [u8] = Vec::leak(bytes);
+        let Ok(font) = MathFont::from_bytes(bytes) else {
+            return false;
+        };
+        // Formulas already laid out refer to earlier faces, so those stay alive.
+        FACE.with(|face| face.set(Some(Box::leak(Box::new(font)))));
+        BYTES.with(|cell| cell.set(bytes));
+        LOADED.with(|loaded| loaded.set(loaded.get() | 1 << group));
         CACHE.with(|cache| *cache.borrow_mut() = crate::cache::Cache::new(4 * 1024 * 1024));
-        MISSING.with(|missing| missing.set(false));
         true
     }
 }

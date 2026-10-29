@@ -11,6 +11,7 @@ mod grammar;
 mod highlight;
 mod html;
 mod math;
+pub mod math_glyphs;
 #[cfg(not(target_arch = "wasm32"))]
 mod math_raster;
 mod reference;

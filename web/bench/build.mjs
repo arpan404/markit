@@ -26,7 +26,7 @@ await build({ ...common, entryPoints: { worker: path.join(webRoot, 'worker.js') 
 await build({ ...common, entryPoints: { style: path.join(webRoot, 'style.css') }, outdir: markit });
 fs.copyFileSync(path.join(webRoot, 'pkg/markit_wasm_bg.wasm'), path.join(markit, 'markit_wasm_bg.wasm'));
 fs.mkdirSync(path.join(markit, 'pkg'));
-fs.copyFileSync(path.join(webRoot, 'pkg/STIXTwoMath-Regular.otf'), path.join(markit, 'pkg/STIXTwoMath-Regular.otf'));
+for (const f of fs.readdirSync(path.join(webRoot, 'pkg')).filter(f => f.startsWith('math-glyphs-'))) fs.copyFileSync(path.join(webRoot, 'pkg', f), path.join(markit, 'pkg', f));
 execFileSync(process.execPath, [path.join(here, 'ace/build.mjs'), ace, path.join(dist, 'ace')], { stdio: 'inherit' });
 // esbuild writes the same KaTeX and Markdown CSS once per chunk that imports
 // it; a Vite build emits it once, so the page links each distinct sheet once.

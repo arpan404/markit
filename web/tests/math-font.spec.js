@@ -10,7 +10,7 @@ const nativeHashes = ['9f34057f1d5643fb', 'b6d1d30230ed5bb2'];
 
 test.beforeEach(async ({ page }) => { await page.goto('/'); await expect(page.getByRole('status')).toContainText('Ready'); });
 
-test('Wasm math with the core font and the on-demand full font matches native output', async ({ page }) => {
+test('Wasm math with the core font and on-demand glyph chunks matches native output', async ({ page }) => {
   const result = await page.evaluate(async documents => {
     const wasm = await import('/pkg/markit_wasm.js');
     await wasm.default();
@@ -23,33 +23,46 @@ test('Wasm math with the core font and the on-demand full font matches native ou
     for (const document of documents) {
       const stream = wasm.MarkdownStream.web();
       let packed = stream.appendPacked(document, true);
-      const missing = wasm.mathFontMissing();
+      const missing = wasm.mathGlyphsMissing();
+      const groups = [];
+      for (let group = 1; group < 32; group++) {
+        if (!(missing & (1 << group))) continue;
+        groups.push(group);
+        const chunk = await (await fetch(`/pkg/math-glyphs-${group}.bin`)).arrayBuffer();
+        if (!wasm.addMathGlyphs(new Uint8Array(chunk))) throw new Error(`chunk ${group}`);
+      }
       if (missing) {
-        const font = await (await fetch('/pkg/STIXTwoMath-Regular.otf')).arrayBuffer();
-        wasm.installMathFont(new Uint8Array(font));
         stream.reset();
         packed = stream.appendPacked(document, true);
       }
-      out.push({ missing, hash: fnv(packed) });
+      out.push({ groups, again: wasm.mathGlyphsMissing(), hash: fnv(packed) });
     }
     return out;
   }, documents);
-  expect(result).toEqual([{ missing: false, hash: nativeHashes[0] }, { missing: true, hash: nativeHashes[1] }]);
+  expect(result[0]).toEqual({ groups: [], again: 0, hash: nativeHashes[0] });
+  expect(result[1].hash).toBe(nativeHashes[1]);
+  expect(result[1].again).toBe(0);
+  // Fraktur is needed; most groups are not.
+  expect(result[1].groups).toContain(1);
+  expect(result[1].groups.length).toBeLessThan(6);
 });
 
-test('the worker loads the full math font once, only when a formula needs it', async ({ page }) => {
+test('the worker loads each needed math glyph chunk once, only when a formula needs it', async ({ page }) => {
   const fonts = [];
-  page.on('request', request => { if (request.url().endsWith('.otf')) fonts.push(request.url()); });
+  page.on('request', request => { if (/math-glyphs-\d+\.bin$|\.otf$/.test(request.url())) fonts.push(request.url()); });
   const before = await page.evaluate(async documents => {
     const { MarkitRenderer } = await import('/index.js');
     const views = documents.map(() => new MarkitRenderer(document.body.appendChild(document.createElement('div'))));
     await views[0].render(documents[0]);
-    const before = performance.getEntriesByType('resource').filter(entry => entry.name.endsWith('.otf')).length;
+    const before = performance.getEntriesByType('resource').filter(entry => /math-glyphs|\.otf/.test(entry.name)).length;
     await Promise.all([views[1].render(documents[1]), views[0].render(documents[0] + '\nMore $\\mathfrak{a}$.\n')]);
     return before;
   }, documents);
   expect(before).toBe(0);
-  expect(fonts).toHaveLength(1);
+  expect(fonts.length).toBeGreaterThan(0);
+  expect(fonts.length).toBeLessThan(6);
+  expect(new Set(fonts).size).toBe(fonts.length);
+  expect(fonts.every(url => /math-glyphs-\d+\.bin$/.test(url))).toBe(true);
   // Every formula drew; none fell back to its TeX source.
   await expect(page.locator('body > div.markit .mk-math svg')).toHaveCount(4 + 1 + 4);
   await expect(page.locator('body > div.markit', { hasText: 'mathfrak' })).toHaveCount(0);

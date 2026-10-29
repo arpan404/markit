@@ -1,4 +1,4 @@
-import init, { MarkdownStream, highlightCodePacked, highlightGrammar, mathFontMissing, installMathFont } from './pkg/markit_wasm.js';
+import init, { MarkdownStream, highlightCodePacked, highlightGrammar, mathGlyphsMissing, addMathGlyphs } from './pkg/markit_wasm.js';
 
 let memory;
 const ready = init().then(exports => { memory = exports.memory; });
@@ -64,15 +64,24 @@ export function decodeWebPatch(bytes) {
   return patch;
 }
 
-/** The Wasm module embeds a core cut of STIX Two Math. The first formula that
- * needs a glyph outside it loads the full font once; see `web_font` in Rust. */
-let fullMathFont;
-function loadFullMathFont() {
-  fullMathFont ??= fetch(new URL('./pkg/STIXTwoMath-Regular.otf', import.meta.url))
-    .then(response => { if (!response.ok) throw new Error(`Math font: HTTP ${response.status}`); return response.arrayBuffer(); })
-    .then(bytes => { if (!installMathFont(new Uint8Array(bytes))) throw new Error('Invalid math font'); })
-    .catch(error => { fullMathFont = undefined; throw error; });
-  return fullMathFont;
+/** The Wasm module embeds a core cut of STIX Two Math. The other outlines are
+ * split by alphabet or symbol family; the first formula that needs a group
+ * loads its chunk once. See `web_font` in Rust. */
+const mathGlyphs = new Map();
+function loadMathGlyphs(missing) {
+  const loads = [];
+  for (let group = 1; group < 32; group++) {
+    if (!(missing & (1 << group))) continue;
+    if (!mathGlyphs.has(group)) {
+      const load = fetch(new URL(`./pkg/math-glyphs-${group}.bin`, import.meta.url))
+        .then(response => { if (!response.ok) throw new Error(`Math glyphs: HTTP ${response.status}`); return response.arrayBuffer(); })
+        .then(bytes => { if (!addMathGlyphs(new Uint8Array(bytes))) throw new Error('Invalid math glyphs'); })
+        .catch(error => { mathGlyphs.delete(group); throw error; });
+      mathGlyphs.set(group, load);
+    }
+    loads.push(mathGlyphs.get(group));
+  }
+  return Promise.all(loads);
 }
 
 async function render(data) {
@@ -89,14 +98,16 @@ async function render(data) {
   if (entry.previous.length + delta.length > 8 * 1024 * 1024) throw new Error('Invalid or oversized document');
   let packed = entry.stream.appendPacked(delta, !!data.finalized);
   entry.previous += delta;
-  if (mathFontMissing()) {
-    // A formula was left as source because its glyphs are not in the core
-    // font. Layouts do not depend on the font cut, so render the whole
-    // document again with the full font; the patch replaces from block 0.
-    await loadFullMathFont();
+  let missing = mathGlyphsMissing();
+  while (missing) {
+    // A formula was left as source because its glyphs are not loaded yet.
+    // Layouts do not depend on the font cut, so render the whole document
+    // again with them; the patch replaces from block 0.
+    await loadMathGlyphs(missing);
     if (streams.get(data.stream) !== entry) throw Object.assign(new Error('Markit stream released'), { code: 'resync' });
     entry.stream.reset();
     packed = entry.stream.appendPacked(entry.previous, !!data.finalized);
+    missing = mathGlyphsMissing();
   }
   return decodeWebPatch(packed);
 }

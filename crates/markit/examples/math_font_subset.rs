@@ -2,12 +2,13 @@
 //!
 //! Lays out a corpus of common formulas with the full font and collects every
 //! glyph the layouts place. Other glyphs keep exact metrics in the core font,
-//! so layouts never change; drawing one loads the full font first. `scripts/math-font-core.py` turns the list into the core font. See
+//! so layouts never change; drawing one loads its glyph chunk first. `scripts/math-font-web.py` turns the list into the core font and the chunks. See
 //! `docs/performance.md`, "Web download size".
 //!
 //! cargo run -p markit --example math_font_subset > crates/markit/assets/math-core-glyphs.txt
-//! scripts/math-font-core.py <latex-rust>/fonts/stix-two-math/STIXTwoMath-Regular.otf \
-//!     crates/markit/assets/math-core-glyphs.txt crates/markit/assets/math-core.otf
+//! scripts/math-font-web.py <latex-rust>/fonts/stix-two-math/STIXTwoMath-Regular.otf \
+//!     crates/markit/assets/math-core-glyphs.txt crates/markit/assets/math-core.otf \
+//!     crates/markit/assets/math-core-groups.bin crates/markit/assets/math-glyphs
 use latex_rust::{BoxContent, MathBox, MathFont, MathStyle};
 use std::collections::BTreeSet;
 

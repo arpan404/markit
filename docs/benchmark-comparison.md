@@ -134,13 +134,13 @@ Markit's transfer is made of five files:
 - a shared 0.4 KB chunk;
 - the Wasm module (418.0 KB, rustc 1.99.1), about 153 KB of which is the embedded core math font.
 
-Some formulas need a glyph outside the core font, for example `\mathfrak`, `\mathscr`, lowercase `\mathbb`, rare symbols and accented text. The first such formula makes the worker fetch the full STIX Two Math once (644 KB gzip) and re-render. That fetch is not in these numbers, and no fixture triggers it.
+Some formulas need a glyph outside the core font, for example `\mathfrak`, `\mathscr`, lowercase `\mathbb`, rare symbols and accented text. The first such formula makes the worker fetch the glyph chunk for that alphabet or symbol family once (4.5–55 KB gzip each, for example 25.6 KB for `\mathfrak`; all 17 chunks together are 316 KB, against 644 KB for the full font fetched before) and re-render. That fetch is not in these numbers, and no fixture triggers it.
 
 What changed since the previous table (cold 44 ms, 50 messages 92 ms, streaming at 4x 781 ms, transfer 1.21 MB):
 
 - **Size.** Several changes cut the download:
   - a size-optimized Wasm profile (`opt-level = "z"`, fat LTO, strip);
-  - a core cut of the math font that keeps every glyph's metrics and bounding box, with the full font fetched on demand;
+  - a core cut of the math font that keeps every glyph's metrics and bounding box, with the other outlines fetched on demand, one alphabet or symbol family at a time;
   - a vendored latex-rust whose ttf-parser drops the Apple, variable-font and glyph-name tables;
   - one HTML event pipeline;
   - a lazy WebGPU chunk.
@@ -171,7 +171,7 @@ Caveats:
 - Keep full grammars opt-in while addressing their steady-state cost.
 - Integrate the renderer into Ace, then compare the full transcript pipeline, not just the library. The React harness in `web/bench` is a step towards this, but it stubs Ace components and does not build Tailwind.
 - Build Ace with its own Vite and Tailwind setup and repeat the size and style/layout comparison; this table uses an esbuild bundle of Ace's components.
-- Measure how often real transcripts need the full math font (a one-time 644 KB fetch).
+- Measure how often real transcripts need a math glyph chunk (a one-time 4.5–55 KB fetch per group).
 - Run the React benchmark in Safari and Firefox, and on mid-range Android Chrome.
 
 Nine batches are retained for each steady-state case. The main statistic is the median of per-call batch averages. The stored p95 is a percentile of batch averages, not production tail latency. See [methodology and reproduction](../benchmarks/README.md) and [raw results](../benchmarks/results/).

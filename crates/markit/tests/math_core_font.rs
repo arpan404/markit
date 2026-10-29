@@ -1,12 +1,13 @@
 //! The web build embeds `assets/math-core.otf` in place of the full STIX Two
 //! Math face. These checks show that it cannot change any output: every glyph
 //! keeps its advance, every glyph latex-rust can reach keeps its bounding box,
-//! kept glyphs keep their outlines, and formulas lay out identically.
+//! kept glyphs keep their outlines, and formulas lay out identically. Merging
+//! the glyph chunks restores every other reachable outline.
 use latex_rust::{ttf_parser, BoxContent, MathBox, MathFont, MathStyle};
 
 static CORE: &[u8] = include_bytes!("../assets/math-core.otf");
 static GLYPHS: &str = include_str!("../assets/math-core-glyphs.txt");
-static BITS: &[u8] = include_bytes!("../assets/math-core-glyphs.bin");
+static GROUPS: &[u8] = include_bytes!("../assets/math-core-groups.bin");
 
 #[derive(Default, PartialEq, Debug)]
 struct Path(Vec<(char, [i32; 6])>);
@@ -43,8 +44,11 @@ fn fonts() -> (MathFont, MathFont, Vec<bool>) {
         kept[gid] = true;
     }
     kept[0] = true; // .notdef
+    assert_eq!(GROUPS.len(), kept.len());
     for (gid, kept) in kept.iter().enumerate() {
-        assert_eq!(*kept, BITS[gid / 8] & (1 << (gid % 8)) != 0, "bitset {gid}");
+        if *kept {
+            assert_eq!(GROUPS[gid], 0, "group {gid}");
+        }
     }
     (full, core, kept)
 }
@@ -213,4 +217,78 @@ fn core_font_lays_out_and_draws_formulas_identically() {
     }
     eprintln!("{same} drawn with the core font, {needs_full} need the full font");
     assert!(same > 500 && needs_full > 0);
+}
+
+fn chunk(group: u8) -> Vec<u8> {
+    let path = format!(
+        "{}/assets/math-glyphs/math-glyphs-{group}.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    std::fs::read(path).unwrap()
+}
+
+#[test]
+fn glyph_chunks_restore_every_reachable_outline() {
+    let (full, _, kept) = fonts();
+    let reachable = reachable(&full);
+    let groups = *GROUPS.iter().max().unwrap();
+    assert!(groups > 5 && groups < 32);
+    let mut merged = CORE.to_vec();
+    for group in 1..=groups {
+        let chunk = chunk(group);
+        let glyphs = markit::math_glyphs::chunk_glyphs(&chunk).unwrap();
+        assert!(!glyphs.is_empty());
+        for (gid, _) in &glyphs {
+            assert_eq!(GROUPS[*gid], group, "chunk {group} glyph {gid}");
+        }
+        // Each chunk holds exactly the glyphs of its group.
+        let count = GROUPS.iter().filter(|g| **g == group).count();
+        assert_eq!(glyphs.len(), count);
+        merged = markit::math_glyphs::merge(&merged, &chunk).unwrap();
+    }
+    let merged: &'static [u8] = merged.leak();
+    let merged = MathFont::from_bytes(merged).unwrap();
+    let (a, b) = (full.face(), merged.face());
+    for gid in 0..a.number_of_glyphs() {
+        let index = usize::from(gid);
+        assert!(GROUPS[index] == 0 || !kept[index], "group {gid}");
+        let id = ttf_parser::GlyphId(gid);
+        assert_eq!(a.glyph_hor_advance(id), b.glyph_hor_advance(id));
+        if reachable[index] {
+            assert_eq!(
+                a.glyph_bounding_box(id),
+                b.glyph_bounding_box(id),
+                "bbox {gid}"
+            );
+            let (mut p, mut q) = (Path::default(), Path::default());
+            a.outline_glyph(id, &mut p);
+            b.outline_glyph(id, &mut q);
+            assert_eq!(p, q, "outline {gid}");
+        }
+    }
+    // Every reachable glyph that the core does not draw is in some chunk.
+    for (gid, reachable) in reachable.iter().enumerate() {
+        if *reachable && !kept[gid] {
+            assert_ne!(GROUPS[gid], 0, "unassigned {gid}");
+        }
+    }
+    assert!(markit::math_glyphs::merge(CORE, b"MKGC").is_none());
+    assert!(markit::math_glyphs::merge(&CORE[..CORE.len() - 8], &chunk(1)).is_none());
+}
+
+#[test]
+fn rare_formulas_need_only_their_alphabet() {
+    let full = MathFont::stix_two_math().unwrap();
+    for (tex, group) in [("\\mathfrak{g}", 1), ("\\mathscr{h}", 2)] {
+        let ast = latex_rust::parse(tex).unwrap();
+        let tree = latex_rust::layout(&ast, &full, MathStyle::Text).unwrap();
+        let mut used = Vec::new();
+        glyphs(&tree, &mut used);
+        let needed: std::collections::BTreeSet<u8> = used
+            .iter()
+            .map(|g| GROUPS[usize::from(*g)])
+            .filter(|g| *g != 0)
+            .collect();
+        assert_eq!(needed.into_iter().collect::<Vec<_>>(), vec![group], "{tex}");
+    }
 }
