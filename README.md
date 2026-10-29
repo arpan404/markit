@@ -4,7 +4,13 @@ Shared Rust Markdown engine for iOS, Android, and web. Parses once, renders nati
 
 Renders CommonMark, tables, task lists, quotes, code fences with copy headers, diffs, `$`/`$$` math, and bare links. Syntax colors come from a built-in lexical tokenizer that colors whole files up to 8 MiB (about 6 ms for 490 KB of TypeScript in Wasm) and falls back to a generic lexer for unknown languages; fuller Sublime grammars are opt-in. See [Syntax highlighting](docs/integration.md#syntax-highlighting). Hosts handle file references, thread links, and image bytes.
 
-An opt-in GitHub flavour renders PR, issue and comment bodies as GitHub does: footnotes, `> [!NOTE]` alerts, an allowlisted HTML subset (`<details>`, `<picture>`, `<kbd>`, ...) whose media the host resolves, task boxes that report their source offset, `@mentions`, `#123`, commit SHAs, emoji shortcodes and mermaid diagram hooks. The default flavour is unchanged: raw HTML stays text.
+An opt-in GitHub flavour renders PR, issue and comment bodies as GitHub does: footnotes, `> [!NOTE]` alerts, an allowlisted HTML subset (`<details>`, `<picture>`, `<kbd>`, ...) whose media the host resolves, task boxes that report their source offset, `@mentions`, `#123`, commit SHAs, emoji shortcodes and mermaid diagram hooks. The agent flavour is the same for coding agents' answers, minus the forge references: with no repository behind a chat, "step #1", `@decorator` and hashes in logs stay text. The default flavour is unchanged: raw HTML stays text.
+
+| Flavour | Use for | Raw HTML, footnotes, alerts, diagrams, task offsets, emoji | `@user`, `#123`, SHAs as links |
+| --- | --- | --- | --- |
+| `default` | Plain Markdown where HTML must stay text | no | no |
+| `github` | PR, issue and comment bodies in a repository | yes | yes |
+| `agent` | AI agents' chat answers | yes | no (plain text) |
 
 ## Web
 
@@ -27,6 +33,9 @@ const body = new MarkitRenderer(element, {
   resolveImage, resolveMedia: (url, kind, signal) => authorizedVideo(url, signal),
   renderDiagram: (language, source, signal) => drawMermaid(source, signal), // SVG string or element
 });
+
+// Coding agents' answers: the same features, no forge references.
+const answer = new MarkitRenderer(element, { flavor: 'agent', onTask, resolveImage, renderDiagram });
 ```
 
 Parsing and highlighting run in a worker (one active render, one queued); results reach the DOM at most once per frame, and the open block updates in place. Without `Worker` (Node, jsdom) or with `worker: 'inline'`, the same Wasm runs in-process: pass its bytes as `wasm`. Serve the demo with `npm --prefix web run serve` after building Wasm.
@@ -36,6 +45,7 @@ Parsing and highlighting run in a worker (one active render, one queued); result
 ```swift
 MarkitText(markdown, finalized: !streaming) // SwiftUI
 let body = try Markit.parse(prBody, flavor: .github) // task, alert, diagram, ... spans
+let answer = try Markit.parse(reply, flavor: .agent) // the same without mention/issue/commit
 
 let view = MarkitView() // UIKit, main actor
 view.onReference = { openReference($0) }
@@ -49,7 +59,7 @@ view.render(markdown, finalized: !streaming)
 val view = MarkitView(context)
 view.onReference = { openReference(it) }
 view.resolveImage = { authorizedDecodedBitmap(it) }
-view.flavor = MarkitFlavor.GITHUB // PR, issue and comment bodies
+view.flavor = MarkitFlavor.GITHUB // PR, issue and comment bodies; AGENT for agents' answers
 view.render(markdown, finalized = !streaming)
 view.close()
 ```
@@ -97,7 +107,7 @@ rustup target add wasm32-unknown-unknown aarch64-apple-ios aarch64-apple-ios-sim
 ./scripts/check.sh
 ```
 
-Details: [integration](docs/integration.md) (including the [GitHub flavour](docs/integration.md#github-flavour)), [binary transport](docs/binary-transport.md), [WebGPU](docs/webgpu.md).
+Details: [integration](docs/integration.md) (including the [GitHub and agent flavours](docs/integration.md#github-and-agent-flavours)), [binary transport](docs/binary-transport.md), [WebGPU](docs/webgpu.md).
 
 ## License
 

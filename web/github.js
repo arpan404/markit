@@ -1,4 +1,4 @@
-/** GitHub flavour behaviour for one renderer: task boxes the host can tick,
+/** GitHub and agent flavour behaviour for one renderer: task boxes the host can tick,
  * footnote links that stay inside the rendered element, diagrams the host
  * draws, and picture sources and videos the host resolves. Markit never loads
  * a URL from the text itself. */

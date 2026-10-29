@@ -10,8 +10,8 @@ use pulldown_cmark::{BlockQuoteKind, CodeBlockKind, CowStr, Event, Tag, TagEnd};
 /// What text may turn into.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum TextMode {
-    /// Bare links, forge references and emoji.
-    Prose,
+    /// Bare links and emoji, and forge references when `references`.
+    Prose { references: bool },
     /// Inside a link: emoji only, never another link.
     Link,
     /// Inside raw `<code>`-like HTML: exactly as written.
@@ -65,11 +65,18 @@ pub(crate) struct Front<'f, 'a> {
     images: usize,
     code: bool,
     diagram: Option<(String, Vec<Event<'a>>)>,
+    /// The flavour links forge references in prose.
+    references: bool,
 }
 
 impl<'f, 'a> Front<'f, 'a> {
     /// `first_task` is the index of this run's first box.
-    pub(crate) fn new(footnotes: &'f Footnotes<'a>, marks: Marks, first_task: usize) -> Self {
+    pub(crate) fn new(
+        footnotes: &'f Footnotes<'a>,
+        marks: Marks,
+        first_task: usize,
+        flavor: crate::Flavor,
+    ) -> Self {
         Self {
             footnotes,
             marks,
@@ -85,13 +92,14 @@ impl<'f, 'a> Front<'f, 'a> {
             images: 0,
             code: false,
             diagram: None,
+            references: flavor.forge_references(),
         }
     }
 
-    pub(crate) fn definition(footnotes: &'f Footnotes<'a>) -> Self {
+    pub(crate) fn definition(footnotes: &'f Footnotes<'a>, flavor: crate::Flavor) -> Self {
         Self {
             in_definition: true,
-            ..Self::new(footnotes, Marks::default(), 0)
+            ..Self::new(footnotes, Marks::default(), 0, flavor)
         }
     }
 
@@ -183,7 +191,9 @@ impl<'f, 'a> Front<'f, 'a> {
                 } else if self.links > 0 || self.balancer.inside(&["a"]) {
                     TextMode::Link
                 } else {
-                    TextMode::Prose
+                    TextMode::Prose {
+                        references: self.references,
+                    }
                 };
                 out.push(Item::Text(text, mode));
             }

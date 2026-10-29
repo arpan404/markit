@@ -42,11 +42,13 @@ data class MarkitDocument(val version: Int, val text: String, val spans: List<Ma
 }
 data class MarkitReference(val kind: String, val target: String)
 /**
- * Which dialect a render uses. [DEFAULT] is agent prose (raw HTML shows as text);
+ * Which dialect a render uses. [DEFAULT] is the plainest (raw HTML shows as text);
  * [GITHUB] is for PR, issue and comment bodies: footnotes, alerts, an allowlisted
  * HTML subset, task spans with source offsets, forge references, emoji and diagrams.
+ * [AGENT] is for coding agents' answers: everything [GITHUB] draws except forge
+ * references (`@user`, `#123`, commit SHAs), which stay text.
  */
-enum class MarkitFlavor(val code: Int) { DEFAULT(0), GITHUB(1) }
+enum class MarkitFlavor(val code: Int) { DEFAULT(0), GITHUB(1), AGENT(2) }
 data class MarkitPatch(val replaceFrom: Int, val documents: List<MarkitDocument>, val finalized: Boolean)
 
 object Markit {

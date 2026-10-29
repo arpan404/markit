@@ -56,17 +56,19 @@ pub fn render_html_with(source: &str, flavor: Flavor) -> String {
 
 /// [`render_html_into`] in a chosen [`Flavor`].
 pub fn render_html_into_with(source: &str, output: &mut String, flavor: Flavor) {
-    match flavor {
-        Flavor::Default => render_html_into(source, output),
-        Flavor::Github => github::render_html(source, output),
+    if flavor.github_markdown() {
+        github::render_html(source, flavor, output);
+    } else {
+        render_html_into(source, output);
     }
 }
 
 /// [`parse`] in a chosen [`Flavor`].
 pub fn parse_with(source: &str, flavor: Flavor) -> Document {
-    match flavor {
-        Flavor::Default => parse(source),
-        Flavor::Github => github::parse(source),
+    if flavor.github_markdown() {
+        github::parse(source, flavor)
+    } else {
+        parse(source)
     }
 }
 

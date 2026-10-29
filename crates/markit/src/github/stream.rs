@@ -46,7 +46,8 @@ pub(crate) fn plan<'a>(
         .iter()
         .any(|(_, events, _)| events.iter().any(definition));
     let none = Footnotes::default();
-    let mut html = Front::new(&none, Marks::default(), 0);
+    // Only balances raw HTML, which every flavour here reads alike.
+    let mut html = Front::new(&none, Marks::default(), 0, crate::Flavor::Github);
     let mut scanner = MarkScanner::new(source, first_task);
     let mut groups: Vec<Group<'a>> = Vec::new();
     let mut open = false;
@@ -111,6 +112,7 @@ pub(crate) struct Target<'t, 'p> {
     pub web: bool,
     pub html: bool,
     pub native: bool,
+    pub flavor: crate::Flavor,
 }
 
 /// One rendered block: a group of blocks, or the footnotes when `group` is
@@ -144,22 +146,15 @@ pub(crate) fn render<'a>(
             &mut highlighted
         };
         if section {
-            super::section_html(target.prepared, footnotes, &mut html, code);
+            super::section_html(target.prepared, footnotes, target.flavor, &mut html, code);
         } else {
             let events = if target.native {
                 events.clone()
             } else {
                 std::mem::take(&mut events)
             };
-            super::render_block(
-                target.prepared,
-                footnotes,
-                events,
-                marks.clone(),
-                first_task,
-                &mut html,
-                code,
-            );
+            let front = Front::new(footnotes, marks.clone(), first_task, target.flavor);
+            super::render_block(target.prepared, front, events, &mut html, code);
         }
     }
     if !section {
@@ -167,9 +162,10 @@ pub(crate) fn render<'a>(
     }
     let document = target.native.then(|| {
         if section {
-            super::section_document(target.prepared, footnotes)
+            super::section_document(target.prepared, footnotes, target.flavor)
         } else {
-            super::block_document(target.prepared, footnotes, events, marks, first_task)
+            let front = Front::new(footnotes, marks, first_task, target.flavor);
+            super::block_document(target.prepared, front, events)
         }
     });
     crate::RenderedBlock {

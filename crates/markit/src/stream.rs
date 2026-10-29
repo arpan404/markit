@@ -240,7 +240,7 @@ impl StreamRenderer {
                 });
             }
         }
-        let github = self.flavor.is_github();
+        let github = self.flavor.github_markdown();
         if github
             && self.settled > 0
             && (self.footnotes || crate::github::may_define(&self.source[self.settled..]))
@@ -395,6 +395,7 @@ impl StreamRenderer {
                         web: self.web,
                         html: !self.native_only,
                         native: !self.html_only,
+                        flavor: self.flavor,
                     },
                     &plan.footnotes,
                     Some((events, group)),
@@ -447,6 +448,7 @@ impl StreamRenderer {
                     web: self.web,
                     html: !self.native_only,
                     native: !self.html_only,
+                    flavor: self.flavor,
                 },
                 &plan.footnotes,
                 None,

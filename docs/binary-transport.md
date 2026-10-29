@@ -82,7 +82,7 @@ the sentinel `0xffffffff`; the empty file string differs from absence.
 | 29 | html | a: tag string ID |
 | 30 | dark_image | a: URL string ID |
 
-Tags 23 to 30 only occur in GitHub flavour documents. They are additive: the
+Tags 23 to 30 only occur in GitHub and agent flavour documents. They are additive: the
 record layout, header and transport version are unchanged (MKBP 1, MKNP 2,
 MKWP 1). The bundled Swift, Kotlin and test readers decode them; an older
 reader that rejects unknown tags must be updated before it reads GitHub

@@ -8,7 +8,8 @@ import SwiftUI
 /// iOS 16+ sizes through `sizeThatFits`. iOS 15 applies the measured height
 /// after the first layout at the offered width.
 ///
-/// `flavor: .github` renders PR, issue and comment bodies; see
+/// `flavor: .github` renders PR, issue and comment bodies and `flavor: .agent`
+/// coding agents' answers (the same without forge references); see
 /// `MarkitInlineView` for `onTask` and `renderDiagram`.
 public struct MarkitInline: View {
     public var markdown: String

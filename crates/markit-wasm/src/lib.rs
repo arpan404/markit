@@ -14,13 +14,13 @@ fn flavor(name: &str) -> Result<markit::Flavor, JsValue> {
     markit::Flavor::from_name(name).ok_or_else(|| JsValue::from_str("Unknown flavor"))
 }
 
-/// `renderHtml` in a flavour: `"default"` or `"github"`.
+/// `renderHtml` in a flavour: `"default"`, `"github"` or `"agent"`.
 #[wasm_bindgen(js_name = renderHtmlFlavor)]
 pub fn render_html_flavor(source: &str, name: &str) -> Result<String, JsValue> {
     Ok(markit::render_html_with(source, flavor(name)?))
 }
 
-/// `renderDocument` in a flavour: `"default"` or `"github"`.
+/// `renderDocument` in a flavour: `"default"`, `"github"` or `"agent"`.
 #[wasm_bindgen(js_name = renderDocumentFlavor)]
 pub fn render_document_flavor(source: &str, name: &str) -> Result<String, JsValue> {
     Ok(markit::render_document_json_with(source, flavor(name)?))
@@ -62,7 +62,7 @@ impl MarkdownStream {
             inner: markit::StreamRenderer::new_web(),
         }
     }
-    /// A web stream in a flavour: `"default"` or `"github"`.
+    /// A web stream in a flavour: `"default"`, `"github"` or `"agent"`.
     #[wasm_bindgen(js_name = webFlavor)]
     pub fn web_flavor(name: &str) -> Result<MarkdownStream, JsValue> {
         Ok(Self {

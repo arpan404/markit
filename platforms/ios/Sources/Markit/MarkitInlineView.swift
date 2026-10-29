@@ -15,7 +15,9 @@ import UIKit
 /// adds alerts with an accented title and bar, footnotes (superscript
 /// references and the notes below the document), task boxes the host can
 /// tick (`onTask`), `@mention`, `#123` and commit references (`onReference`)
-/// and diagrams the host can draw (`renderDiagram`).
+/// and diagrams the host can draw (`renderDiagram`). The agent flavour
+/// (`flavor: .agent`, for coding agents' answers) draws the same except the
+/// forge references, which stay text.
 @MainActor public final class MarkitInlineView: UIView {
     public var onLink: ((URL) -> Void)?
     /// App references. In the GitHub flavour also `mention`, `issue` and

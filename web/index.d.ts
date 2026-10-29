@@ -7,10 +7,12 @@ export interface MarkitReference { kind: 'file' | 'thread' | 'pull_request' | 'm
  * inside its `[ ]` in the Markdown source (`source[offset - 1] === '['`), so the
  * host rewrites exactly that character; `index` is the box's order. */
 export interface MarkitTask { index: number; offset: number; checked: boolean }
-/** `default` is agent prose: raw HTML shows as text. `github` is for PR, issue
+/** `default` is the plainest: raw HTML shows as text. `github` is for PR, issue
  * and comment bodies: footnotes, `> [!NOTE]` alerts, an allowlisted HTML subset,
- * task boxes, `@mentions`, `#123`, commit SHAs, emoji and mermaid diagrams. */
-export type MarkitFlavor = 'default' | 'github';
+ * task boxes, `@mentions`, `#123`, commit SHAs, emoji and mermaid diagrams.
+ * `agent` is for coding agents' answers: everything `github` draws except the
+ * forge references (`@mentions`, `#123`, commit SHAs), which stay text. */
+export type MarkitFlavor = 'default' | 'github' | 'agent';
 /** Code fence chrome. */
 export interface MarkitCodeOptions {
   /** Show line numbers once a fence has at least this many lines. Default 1 (always).
@@ -40,16 +42,16 @@ export interface MarkitOptions {
   onLink?: (url: string) => void;
   onReference?: (reference: MarkitReference) => void;
   /** Supplies authorized PNG, JPEG, WebP or GIF bytes for Markdown images and, in
-   * the GitHub flavour, HTML `<img>` and `<picture>` sources. Markit never loads them. */
+   * the GitHub and agent flavours, HTML `<img>` and `<picture>` sources. Markit never loads them. */
   resolveImage?: (url: string, alt: string, signal: AbortSignal) => Blob | Uint8Array | null | Promise<Blob | Uint8Array | null>;
-  /** GitHub flavour: supplies a playable video for an HTML `<video>`: bytes, or a
+  /** GitHub and agent flavours: supplies a playable video for an HTML `<video>`: bytes, or a
    * `blob:`/`https:` URL the host minted. Without it videos stay empty. */
   resolveMedia?: (url: string, kind: 'video', signal: AbortSignal) => Blob | Uint8Array | string | null | Promise<Blob | Uint8Array | string | null>;
-  /** GitHub flavour: draws a closed ```` ```mermaid ```` fence. An element is inserted
+  /** GitHub and agent flavours: draws a closed ```` ```mermaid ```` fence. An element is inserted
    * as is; a string is SVG markup, shown as an image so it cannot run script. On
    * `null` or an error the code block stays. */
   renderDiagram?: (language: string, source: string, signal: AbortSignal) => Element | string | null | Promise<Element | string | null>;
-  /** GitHub flavour: task boxes are enabled only when this is set. */
+  /** GitHub and agent flavours: task boxes are enabled only when this is set. */
   onTask?: (task: MarkitTask) => void;
   onError?: (error: Error) => void;
 }

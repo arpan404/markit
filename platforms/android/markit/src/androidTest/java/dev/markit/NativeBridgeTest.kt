@@ -41,4 +41,17 @@ class NativeBridgeTest {
             assertTrue(spans.any { it.kind == "task" && it.number("offset") == offset && !it.bool("checked") })
         }
     }
+    @Test fun agentFlavourDrawsFootnotesButLeavesMentionsAndIssueNumbersAsText() {
+        val source = "Step #12 for @octocat[^1]\n\n[^1]: The note.\n"
+        val agent = Markit.parse(source, MarkitFlavor.AGENT)
+        assertTrue(agent.spans.any { it.kind == "footnote_reference" })
+        assertFalse(agent.spans.any { it.kind == "reference" })
+        assertTrue(agent.text.contains("Step #12 for @octocat"))
+        assertTrue(Markit.parse(source, MarkitFlavor.GITHUB).spans.any { it.kind == "reference" && it.string("reference_kind") == "mention" })
+        MarkitStream(MarkitFlavor.AGENT).use { stream ->
+            val spans = stream.append(source, true).documents.flatMap { it.spans }
+            assertTrue(spans.any { it.kind == "footnote_reference" })
+            assertFalse(spans.any { it.kind == "reference" })
+        }
+    }
 }

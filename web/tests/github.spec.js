@@ -149,3 +149,22 @@ test('streaming more text into a block keeps its drawn diagram, resolved video a
   expect(events.filter(kind => kind === 'diagram')).toHaveLength(1);
   expect(events.filter(kind => kind === 'media')).toHaveLength(1);
 });
+
+test('an agent-flavour renderer draws details and footnotes but leaves #12 and @octocat as text', async ({ page }) => {
+  const html = await page.evaluate(async () => {
+    const { MarkitRenderer } = await import('./index.js');
+    const element = Object.assign(document.createElement('div'), { id: 'agent' });
+    document.body.append(element);
+    const renderer = new MarkitRenderer(element, { flavor: 'agent' });
+    await renderer.render('Step #12 for @octocat[^1]\n\n<details><summary>Logs</summary>\n\nok\n\n</details>\n\n[^1]: The note.\n');
+    return element.innerHTML;
+  });
+  const root = page.locator('#agent');
+  await expect(root.locator('details > summary')).toHaveText('Logs');
+  await expect(root.locator('details')).toContainText('ok');
+  await expect(root.locator('[data-markit-footnote="1"]')).toHaveCount(1);
+  await expect(root.locator('[data-markit-footnote-def="1"]')).toContainText('The note.');
+  await expect(root.locator('p').first()).toContainText('Step #12 for @octocat');
+  await expect(root.locator('[data-markit-reference]')).toHaveCount(0);
+  expect(html).not.toContain('&lt;details');
+});
