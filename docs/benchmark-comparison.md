@@ -202,3 +202,24 @@ Fresh macOS release results use three runs per CPU setting, Chromium 156.0.8078.
 | Transfer, gzip | 497.1 KB | 517.5 KB |
 
 Raw samples are in [1x](../web/bench/results/chromium-macos.json) and [4x](../web/bench/results/chromium-macos-cpu4x.json). Existing harness caveats above still apply.
+
+## Native app viewport benchmarks, 2026-10-28
+
+Release demos now have an opt-in benchmark mode on iPhone 18 Pro, iOS 27.0 Simulator, and Medium Phone API 36.1 Android emulator, Android 16. Both run on this Mac's host CPU. The Android display is 1080×2400 at 420 dpi; iOS reports its viewport in points in the raw results. These are not physical-device measurements, and the different view implementations and viewport units do not support a cross-platform speed ratio. No Ace native UI baseline was run.
+
+The same fixtures exercise a mixed message, 50 repeated messages, a highlighted 1,000-line Rust fence, and a 5,000-line fence above the default highlighting limit. Bridge time includes Rust parsing and Swift/JNI document decoding. Viewport time includes synchronous `setDocument`, native view creation, and requested layout. It excludes asynchronous streaming, drawing/GPU presentation, scrolling frame cadence, app startup, and network. Ten observations per case retain the first separately; the table reports the median of the remaining nine warm observations. Each observation creates a new view but shares process caches. iOS is measured before and after the span-index change, sequentially; no library change was made on Android.
+
+| Fixture | iOS layout before, ms | iOS layout after, ms | iOS bridge, ms | Android layout, ms | Android bridge, ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| code1000 | 18.13 | 12.75 | 14.71 | 3.15 | 6.33 |
+| code5000 | 12.03 | 11.71 | 0.74 | 1.70 | 0.93 |
+| message | 15.04 | 15.99 | 0.12 | 1.35 | 0.08 |
+| transcript50 | 29.95 | 32.75 | 2.63 | 2.81 | 1.40 |
+
+The highlighted-code viewport improves from 18.13 to 12.75 ms, about 30%. Instead of scanning every document span for each visible code line, iOS buckets intersecting spans once in their original order. Small and unhighlighted blocks retain the direct scan to avoid allocating a large index. This spends additional memory on span references for highlighted blocks; peak memory was not measured. Other fixture changes are small absolute shifts between sequential runs and are not claimed as improvements. Simulator scheduling noise remains visible in individual samples.
+
+The harness also records synchronous scroll-to-end work for the outer document list. A code fence is one outer row, so its near-zero scroll result says nothing about scrolling within the code pane. Frame-time and nested-pane scrolling measurements remain outstanding.
+
+The benchmark exposed an iOS crash when setting a document before the first layout. `UITableView` had observed the new data-source count before receiving insertion operations. Mutating rows inside the update transaction fixes it; a release simulator regression test failed before the fix and passes after. Another test compares indexed and full-scan attributed output for both appearances, Unicode, multiline comments, and empty lines.
+
+Raw results: [iOS before](../benchmarks/results/ios-simulator-before.json), [iOS after](../benchmarks/results/ios-simulator-after.json), [Android](../benchmarks/results/android-emulator.json). Build and run instructions are in [the benchmark README](../benchmarks/README.md#native-app-benchmarks).

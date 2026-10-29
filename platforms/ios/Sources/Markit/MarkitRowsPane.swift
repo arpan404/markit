@@ -8,6 +8,7 @@ final class MarkitRowsPane: UIView, UITableViewDataSource {
     private let document: MarkitDocument
     private let sourceRange: NSRange
     private var lines: [NSRange] = []
+    private var lineSpans: [[MarkitSpan]]?
     private var cells: [[MarkitSpan]] = []
     private let isTable: Bool
     private let contentWidth: CGFloat
@@ -28,6 +29,10 @@ final class MarkitRowsPane: UIView, UITableViewDataSource {
                 let end = newline.location == NSNotFound ? NSMaxRange(range) : newline.location
                 lines.append(NSRange(location: start, length: end - start))
                 start = newline.location == NSNotFound ? NSMaxRange(range) : end + 1
+            }
+            // Small or unhighlighted blocks are cheaper to scan directly.
+            if lines.count > 50 && document.spans.count > lines.count {
+                lineSpans = spansByLine(document.spans, lines: lines)
             }
             let widest = lines.map(\.length).max() ?? 0
             contentWidth = max(availableWidth, min(12000, CGFloat(widest + 8) * 8))
@@ -81,12 +86,29 @@ final class MarkitRowsPane: UIView, UITableViewDataSource {
         } else {
             let number = UILabel(); number.text = String(indexPath.row + 1); number.textColor = .tertiaryLabel; number.textAlignment = .right
             number.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular); number.widthAnchor.constraint(equalToConstant: 40).isActive = true
-            let label = UILabel(); label.attributedText = attributed(document, range: lines[indexPath.row], traits: traitCollection)
+            let label = UILabel(); label.attributedText = attributed(document, range: lines[indexPath.row], traits: traitCollection, candidates: lineSpans?[indexPath.row])
             stack.addArrangedSubview(number); stack.addArrangedSubview(label); stack.spacing = 12
         }
         cell.contentView.addSubview(stack); stack.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: 8), stack.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -8), stack.topAnchor.constraint(equalTo: cell.contentView.topAnchor), stack.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor)])
         return cell
     }
+}
+/// Bucket intersecting spans once, preserving their original application order.
+/// Code rows then style only their own runs instead of scanning the whole file.
+func spansByLine(_ spans: [MarkitSpan], lines: [NSRange]) -> [[MarkitSpan]] {
+    var result = Array(repeating: [MarkitSpan](), count: lines.count)
+    for span in spans {
+        var low = 0, high = lines.count
+        while low < high {
+            let mid = (low + high) / 2
+            if NSMaxRange(lines[mid]) <= span.start { low = mid + 1 } else { high = mid }
+        }
+        while low < lines.count && lines[low].location < span.end {
+            if NSIntersectionRange(lines[low], span.range).length > 0 { result[low].append(span) }
+            low += 1
+        }
+    }
+    return result
 }
 #endif

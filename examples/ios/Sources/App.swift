@@ -6,6 +6,7 @@ import Markit
         WindowGroup {
             NavigationView {
                 MarkitText(sample).navigationTitle("Markit")
+                    .task { if CommandLine.arguments.contains("--benchmark") { await MobileBenchmark.run() } }
             }
         }
     }

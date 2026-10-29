@@ -9,7 +9,7 @@ targets:
   MarkitDemo:
     type: application
     platform: iOS
-    sources: [Sources]
+    sources: [Sources, {path: ../../benchmarks/mobile, type: folder, buildPhase: resources}]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.markit.demo
@@ -19,3 +19,21 @@ targets:
         SWIFT_VERSION: '5.9'
     dependencies:
       - package: Markit
+  RendererTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: dev.markit.renderer-tests
+    dependencies:
+      - target: MarkitDemo
+      - package: Markit
+schemes:
+  MarkitDemo:
+    build:
+      targets:
+        MarkitDemo: all
+    test:
+      targets: [RendererTests]

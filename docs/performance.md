@@ -30,3 +30,7 @@ Importing `index.js` starts the default shared worker after the current task (`g
 ## Follow-up validation
 
 On 2026-10-28, rebuilding stale web artifacts restored all 31 Playwright tests on macOS. The saved Linux comparison for `perf/optimize-more` reports streaming main-thread medians of 181.1 ms at 1x and 489.0 ms at 4x, compared with 191.5 and 597.7 ms on `perf/beat-ace`. The runs were separate; these are observations rather than a controlled speedup estimate. Glyph chunking increases the core transfer by about 2.9 KB gzip and reduces the first Fraktur outline fetch from 644 KB to 25.6 KB. A text-node append experiment did not improve the profile and was removed. See [the comparison report](benchmark-comparison.md#follow-up-validation-on-macos-2026-10-28) for validation and fresh macOS results.
+
+## iOS code viewport
+
+Long highlighted code panes bucket spans by line once rather than scanning the entire document for each visible line. Small or unhighlighted panes retain the direct scan. On iOS 27 Simulator, the release 1,000-line fixture's median synchronous viewport layout fell from 18.13 to 12.75 ms. This is a host simulator result, not device FPS. Indexing adds span-reference storage; peak memory is unmeasured. Android release app measurements are also retained. See [native app viewport results](benchmark-comparison.md#native-app-viewport-benchmarks-2026-10-28).

@@ -13,13 +13,13 @@ extension UIColor {
     }
 }
 
-func attributed(_ document: MarkitDocument, range: NSRange, traits: UITraitCollection) -> NSAttributedString {
+func attributed(_ document: MarkitDocument, range: NSRange, traits: UITraitCollection, candidates: [MarkitSpan]? = nil) -> NSAttributedString {
     let source = document.text as NSString
     let safeRange = NSIntersectionRange(range, NSRange(location: 0, length: source.length))
     let paragraph = NSMutableParagraphStyle(); paragraph.lineSpacing = 3; paragraph.paragraphSpacing = 6
     let body = UIFont.preferredFont(forTextStyle: .body, compatibleWith: traits)
     let output = NSMutableAttributedString(string: source.substring(with: safeRange), attributes: [.font: body, .foregroundColor: UIColor.label, .paragraphStyle: paragraph])
-    let spans = document.spans.filter { NSIntersectionRange($0.range, safeRange).length > 0 }
+    let spans = (candidates ?? document.spans).filter { NSIntersectionRange($0.range, safeRange).length > 0 }
     for span in spans {
         let clipped = NSIntersectionRange(span.range, safeRange)
         let local = NSRange(location: clipped.location - safeRange.location, length: clipped.length)

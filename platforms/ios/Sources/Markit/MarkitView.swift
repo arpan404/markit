@@ -50,7 +50,6 @@ import UIKit
     private func display(_ documents: [MarkitDocument], changedFrom: Int) {
         let first = rows.firstIndex { $0.docIndex >= changedFrom } ?? rows.count
         let oldCount = rows.count
-        rows.removeSubrange(first..<rows.count)
         let appended = documents.enumerated().filter { $0.offset >= changedFrom }.flatMap { index, document in document.blocks.flatMap { block -> [Row] in
             guard block.kind == "text" && block.end - block.start > 3000 else { return [Row(docIndex: index, document: document, range: block.range, kind: block.kind)] }
             let text = document.text as NSString
@@ -67,8 +66,11 @@ import UIKit
             }
             return pieces
         } }
-        rows.append(contentsOf: appended)
         table.performBatchUpdates {
+            // UIKit must observe the old count before the transaction begins.
+            // In particular, the first update may precede the first layout.
+            rows.removeSubrange(first..<rows.count)
+            rows.append(contentsOf: appended)
             if oldCount > first { table.deleteRows(at: (first..<oldCount).map { IndexPath(row: $0, section: 0) }, with: .none) }
             if rows.count > first { table.insertRows(at: (first..<rows.count).map { IndexPath(row: $0, section: 0) }, with: .none) }
         }

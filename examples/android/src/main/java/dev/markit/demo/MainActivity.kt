@@ -9,6 +9,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         markdown = MarkitView(this); setContentView(markdown)
+        if (intent.getBooleanExtra("benchmark", false)) { markdown.post { MobileBenchmark.run(this) }; return }
         markdown.render("""
             # Native Markdown
 
