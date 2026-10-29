@@ -1,6 +1,7 @@
 import { unpackHighlight } from './highlight.js';
 import { prepareCode, codeLines, firstChangedLine } from './code-lines.js';
 import { GpuCodeRenderer } from './gpu-code.js';
+import { GithubFeatures } from './github.js';
 
 /** One Web Worker and Wasm instance serves every renderer created with the
  * same worker URL. Each renderer owns a stream inside it; requests are
@@ -80,18 +81,20 @@ export class MarkitRenderer {
   #running = false; #queued; #destroyed = false; #options; #code = new WeakMap();
   #html = []; #dirty = Infinity; #payloads = new WeakMap(); #lines = new WeakMap();
   #urls = new Map(); #imageJobs = new Map(); #listeners = new AbortController();
-  #gpu = new GpuCodeRenderer(); #gpuViews = new Map();
+  #gpu = new GpuCodeRenderer(); #gpuViews = new Map(); #github;
   constructor(element, options = {}) {
     this.#element = element;
     this.#options = options;
     element.classList.add('markit');
     this.#engine = engineFor(options);
     this.#stream = this.#engine.stream();
+    this.#github = new GithubFeatures(element, options);
     const signal = this.#listeners.signal;
     element.addEventListener('click', event => this.#activate(event), { signal });
     element.addEventListener('keydown', event => {
-      if (event.key === 'Enter' && event.target.closest('[data-markit-reference]')) this.#activate(event);
+      if (event.key === 'Enter' && event.target.closest('[data-markit-reference],[data-markit-footnote],[data-markit-footnote-back]')) this.#activate(event);
     }, { signal });
+    element.addEventListener('change', event => this.#github.change(event), { signal });
     element.addEventListener('copy', event => {
       const selection = element.ownerDocument.getSelection();
       if (!selection?.rangeCount) return;
@@ -116,6 +119,7 @@ export class MarkitRenderer {
       const fields = sent !== undefined && source.startsWith(sent)
         ? { stream: this.#stream, append: source.slice(sent.length), finalized }
         : { stream: this.#stream, source, finalized };
+      if (this.#options.flavor) fields.flavor = this.#options.flavor;
       this.#sent = source;
       try { return await this.#rpc('render', fields); }
       catch (error) {
@@ -170,6 +174,7 @@ export class MarkitRenderer {
       for (const pre of block.querySelectorAll('pre')) {
         this.#gpuViews.get(pre)?.destroy(); this.#gpuViews.delete(pre);
       }
+      this.#github.release(block);
       for (const image of block.querySelectorAll('img')) {
         this.#imageJobs.get(image)?.abort(); this.#imageJobs.delete(image);
         const url = this.#urls.get(image);
@@ -184,6 +189,7 @@ export class MarkitRenderer {
       block.innerHTML = payload.html;
       this.#payloads.set(block, payload);
       for (const section of block.querySelectorAll('.mk-codeblock')) this.#prepareCode(section, payload.codes?.[Number(section.dataset.markitCode)]);
+      this.#github.mount(block);
       fragment.append(block);
     }
     this.#element.append(fragment);
@@ -275,6 +281,7 @@ export class MarkitRenderer {
       } catch (error) { this.#options.onError?.(error); }
       return;
     }
+    if (this.#github.activate(event)) return;
     const reference = event.target.closest('[data-markit-reference]');
     if (reference) {
       if (this.#options.onReference) {
@@ -291,7 +298,7 @@ export class MarkitRenderer {
     this.#destroyed = true; this.#listeners.abort();
     this.#engine.release(this, this.#stream);
     if (!this.#engine.shared) this.#engine.terminate();
-    this.#gpu.destroy(); this.#gpuViews.clear();
+    this.#gpu.destroy(); this.#gpuViews.clear(); this.#github.destroy();
     this.#queued?.reject(new Error('Renderer disposed')); this.#queued = undefined;
     for (const job of this.#imageJobs.values()) job.abort(); this.#imageJobs.clear();
     for (const url of this.#urls.values()) URL.revokeObjectURL(url); this.#urls.clear();

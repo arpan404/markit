@@ -32,3 +32,14 @@
 .markit .mk-gpu-active code { font-variant-ligatures:none; }
 .markit .mk-math { display:inline-block; vertical-align:middle; max-width:100%; overflow-x:auto; }
 .markit .mk-math svg { display:block; max-width:none; } .markit .mk-display { display:block; padding:12px 0; }
+.markit .mk-alert { border-left:4px solid var(--mk-alert,#0969da); padding:4px 16px; margin:0 0 16px; }
+.markit .mk-alert>:last-child { margin-bottom:0; }
+.markit .mk-alert-title { font-weight:600; color:var(--mk-alert,#0969da); margin:0 0 4px; }
+.markit .mk-alert-tip { --mk-alert:#1a7f37; } .markit .mk-alert-important { --mk-alert:#8250df; }
+.markit .mk-alert-warning { --mk-alert:#9a6700; } .markit .mk-alert-caution { --mk-alert:#cf222e; }
+.markit .mk-footnotes { border-top:1px solid var(--mk-border); color:var(--mk-muted); font-size:0.875em; }
+.markit [data-markit-footnote],.markit [data-markit-footnote-back] { cursor:pointer; }
+.markit .mk-diagram>.mk-diagram-drawn { display:block; max-width:100%; height:auto; }
+.markit kbd { border:1px solid var(--mk-border); border-bottom-width:2px; border-radius:4px; padding:0 4px; font:0.85em ui-monospace,monospace; }
+.markit details>summary { cursor:pointer; }
+.markit video { max-width:100%; }

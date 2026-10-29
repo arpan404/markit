@@ -2,7 +2,7 @@ import { createElement, forwardRef, memo, useEffect, useImperativeHandle, useRef
 import { MarkitRenderer } from './index.js';
 export { preloadMarkit } from './index.js';
 
-const OPTIONS = ['onLink', 'onReference', 'resolveImage', 'onError'];
+const OPTIONS = ['onLink', 'onReference', 'resolveImage', 'resolveMedia', 'renderDiagram', 'onTask', 'onError'];
 
 /** Owns one renderer for one element. Text updates go straight to the renderer,
  * never through React state, and survive StrictMode's detach/re-attach. */
@@ -20,8 +20,8 @@ class MarkitController {
     if (this.#element === element) return;
     this.#detach();
     this.#element = element;
-    const { workerURL, worker, codeRendering, lazy } = this.#latest.current;
-    const options = { workerURL, worker, codeRendering };
+    const { workerURL, worker, codeRendering, flavor, lazy } = this.#latest.current;
+    const options = { workerURL, worker, codeRendering, flavor };
     // Callbacks are read when used, so new closures never recreate the renderer.
     for (const name of OPTIONS) Object.defineProperty(options, name, { enumerable: true, get: () => this.#latest.current[name] });
     this.#renderer = new MarkitRenderer(element, options);

@@ -61,7 +61,16 @@ function render(data) {
     // An append continues the source this stream last rendered.
     if (!entry || typeof data.append !== 'string') throw Object.assign(new Error('Markit stream out of sync'), { code: 'resync' });
   } else if (typeof data.source !== 'string') throw new Error('Invalid or oversized document');
-  if (!entry) { entry = { stream: MarkdownStream.web(), previous: '' }; streams.set(data.stream, entry); }
+  const flavor = data.flavor ?? 'default';
+  if (entry && entry.flavor !== flavor) {
+    // A stream renders one flavour; another starts it over from the full source.
+    entry.stream.free(); streams.delete(data.stream); entry = undefined;
+    if (data.append !== undefined) throw Object.assign(new Error('Markit stream out of sync'), { code: 'resync' });
+  }
+  if (!entry) {
+    entry = { stream: flavor === 'default' ? MarkdownStream.web() : MarkdownStream.webFlavor(flavor), previous: '', flavor };
+    streams.set(data.stream, entry);
+  }
   let delta;
   if (data.append !== undefined) delta = data.append;
   else if (data.source.startsWith(entry.previous)) delta = data.source.slice(entry.previous.length);

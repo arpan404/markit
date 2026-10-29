@@ -19,6 +19,7 @@
     "highlight.js",
     "code-lines.js",
     "gpu-code.js",
+    "github.js",
     "style.css",
     "pkg",
     "licenses",
