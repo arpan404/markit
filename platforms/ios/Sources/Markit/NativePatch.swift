@@ -98,6 +98,8 @@ enum NativePatchReader {
             var light: String?, dark: String?, change: String?, tex: String?, raw: String?, display: Bool?
             var png: String?, width: Int?, height: Int?, row: Int?, column: Int?, header: Bool?
             var alignment: String?, target: String?, referenceKind: String?
+            var alert: String?, label: String?, number: Int?, index: Int?, offset: Int?, checked: Bool?
+            var source: String?, tag: String?
             switch tag {
             case 1: kind = "heading"; level = a[0]
             case 2: kind = "paragraph"
@@ -128,13 +130,22 @@ enum NativePatchReader {
                 kind = "table_cell"; row = a[0]; column = a[1]; header = a[2] != 0; alignment = try string(a[3])
             case 21: kind = "syntax"; light = hex(a[0]); dark = hex(a[1])
             case 22: kind = "syntax"; light = try string(a[0]); dark = try string(a[1])
+            case 23: kind = "alert"; alert = try string(a[0])
+            case 24: kind = "footnote_reference"; label = try string(a[0]); number = a[1]
+            case 25: kind = "footnote_definition"; label = try string(a[0]); number = a[1]
+            case 26: kind = "task"; index = a[0]; offset = a[1]; checked = a[2] != 0
+            case 27: kind = "diagram"; language = try string(a[0]); source = try string(a[1])
+            case 28: kind = "video"; url = try string(a[0])
+            case 29: kind = "html"; tag = try string(a[0])
+            case 30: kind = "dark_image"; url = try string(a[0])
             default: throw MarkitBinaryError.malformed
             }
             spans.append(MarkitSpan(start: start, end: end, kind: kind, level: level, depth: depth, language: language,
                                     url: url, file: file, diff: diff, light: light, dark: dark, change: change, tex: tex,
                                     raw: raw, display: display, png: png, width: width, height: height, row: row,
                                     column: column, header: header, alignment: alignment, target: target,
-                                    reference_kind: referenceKind))
+                                    reference_kind: referenceKind, alert: alert, label: label, number: number,
+                                    index: index, offset: offset, checked: checked, source: source, tag: tag))
         }
         var blocks: [MarkitBlock] = []
         blocks.reserveCapacity(blockCount)

@@ -10,6 +10,22 @@ pub fn render_document(source: &str) -> String {
     markit::render_document_json(source)
 }
 
+fn flavor(name: &str) -> Result<markit::Flavor, JsValue> {
+    markit::Flavor::from_name(name).ok_or_else(|| JsValue::from_str("Unknown flavor"))
+}
+
+/// `renderHtml` in a flavour: `"default"` or `"github"`.
+#[wasm_bindgen(js_name = renderHtmlFlavor)]
+pub fn render_html_flavor(source: &str, name: &str) -> Result<String, JsValue> {
+    Ok(markit::render_html_with(source, flavor(name)?))
+}
+
+/// `renderDocument` in a flavour: `"default"` or `"github"`.
+#[wasm_bindgen(js_name = renderDocumentFlavor)]
+pub fn render_document_flavor(source: &str, name: &str) -> Result<String, JsValue> {
+    Ok(markit::render_document_json_with(source, flavor(name)?))
+}
+
 #[wasm_bindgen(js_name = highlightCode)]
 pub fn highlight_code(source: &str, language: &str) -> String {
     markit::highlight_json(source, language)
@@ -39,6 +55,13 @@ impl MarkdownStream {
         Self {
             inner: markit::StreamRenderer::new_web(),
         }
+    }
+    /// A web stream in a flavour: `"default"` or `"github"`.
+    #[wasm_bindgen(js_name = webFlavor)]
+    pub fn web_flavor(name: &str) -> Result<MarkdownStream, JsValue> {
+        Ok(Self {
+            inner: markit::StreamRenderer::new_web().with_flavor(flavor(name)?),
+        })
     }
     pub fn reset(&mut self) {
         self.inner.reset();

@@ -110,6 +110,14 @@ internal object NativePatchReader {
                 20 -> { kind = "table_cell"; fields["row"] = a[0]; fields["column"] = a[1]; fields["header"] = a[2] != 0; fields["alignment"] = string(a[3]) }
                 21 -> { kind = "syntax"; fields["light"] = "#%06x".format(a[0]); fields["dark"] = "#%06x".format(a[1]) }
                 22 -> { kind = "syntax"; fields["light"] = string(a[0]); fields["dark"] = string(a[1]) }
+                23 -> { kind = "alert"; fields["alert"] = string(a[0]) }
+                24 -> { kind = "footnote_reference"; fields["label"] = string(a[0]); fields["number"] = a[1] }
+                25 -> { kind = "footnote_definition"; fields["label"] = string(a[0]); fields["number"] = a[1] }
+                26 -> { kind = "task"; fields["index"] = a[0]; fields["offset"] = a[1]; fields["checked"] = a[2] != 0 }
+                27 -> { kind = "diagram"; fields["language"] = string(a[0]); fields["source"] = string(a[1]) }
+                28 -> { kind = "video"; fields["url"] = string(a[0]) }
+                29 -> { kind = "html"; fields["tag"] = string(a[0]) }
+                30 -> { kind = "dark_image"; fields["url"] = string(a[0]) }
                 else -> throw IllegalArgumentException("Malformed Markit document")
             }
             spans.add(MarkitSpan(start, end, kind, fields))

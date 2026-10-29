@@ -23,6 +23,9 @@ class MarkitView @JvmOverloads constructor(context: Context, attrs: AttributeSet
     var onReference: (MarkitReference) -> Unit = {}
     var onLink: (String) -> Unit = { url -> context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
     var resolveImage: ((String) -> Bitmap?)? = null
+    /** Dialect of the next render. Changing it renders the source again from a new stream. */
+    @Volatile var flavor: MarkitFlavor = MarkitFlavor.DEFAULT
+        set(value) { if (field != value) { field = value; lastRequested = null } }
     var onError: (Throwable) -> Unit = {}
     private data class Row(val docIndex: Int, val document: MarkitDocument, val start: Int, val end: Int, val kind: String)
     private data class Job(val source: String, val finalized: Boolean, val revision: Long)
@@ -56,7 +59,7 @@ class MarkitView @JvmOverloads constructor(context: Context, attrs: AttributeSet
             try {
                 val patch = synchronized(processing) {
                     if (closed) return
-                    if (stream == null || !job.source.startsWith(previous)) { stream?.close(); stream = MarkitStream(); previous = ""; parsedDocuments.clear() }
+                    if (stream == null || stream!!.flavor != flavor || !job.source.startsWith(previous)) { stream?.close(); stream = MarkitStream(flavor); previous = ""; parsedDocuments.clear() }
                     val result = stream!!.append(job.source.substring(previous.length),job.finalized)
                     parsedDocuments.subList(result.replaceFrom,parsedDocuments.size).clear(); parsedDocuments.addAll(result.documents)
                     previous = job.source; Pair(result,parsedDocuments.toList())
