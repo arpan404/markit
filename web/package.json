@@ -37,7 +37,7 @@
     "test": "playwright test",
     "test:gpu": "playwright test --config playwright.gpu.config.js",
     "serve": "python3 -m http.server 4173 --bind 127.0.0.1",
-    "test:node": "node --test tests/node/"
+    "test:node": "node --test tests/node/*.test.mjs"
   },
   "peerDependencies": {
     "react": ">=18"
