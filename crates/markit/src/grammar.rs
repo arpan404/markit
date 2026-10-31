@@ -311,7 +311,26 @@ fn parse_code(
                 break;
             }
         }
-        let line = parse_line(lines[index], &state, syntaxes, light, dark)?;
+        // Fast path: a bare newline past line 0 carries no matchable text
+        // (trailing-space rules need spaces or tabs), so it parses to empty
+        // scope ops and replays the line in the current style with the
+        // boundary unchanged. Line 0 always parses: `ParseState::first_line`
+        // emits the syntax meta scope exactly once.
+        let line = if index > 0 && (lines[index] == "\n" || lines[index] == "\r\n") {
+            let line = lines[index];
+            Rc::new(ParsedLine {
+                text: line.into(),
+                before: state.clone(),
+                after: state.clone(),
+                runs: vec![Run {
+                    len: line.len(),
+                    colors: colors(&state.path.as_slice(), light, dark),
+                }],
+            })
+        } else {
+            let line = parse_line(lines[index], &state, syntaxes, light, dark)?;
+            line
+        };
         state = line.after.clone();
         parsed.push(line);
     }
