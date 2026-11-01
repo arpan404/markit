@@ -36,6 +36,10 @@ Results are applied at most once per animation frame (a macrotask when the page 
 
 The worker and Wasm compile take a few tens of milliseconds the first time. Call `preloadMarkit({ workerURL })` (also exported from `@markit/web/react`) when the app starts, so the first message does not wait for them. In the Chromium benchmark, this cut the cold first message from 44 ms to 26 ms.
 
+### Math
+
+Formulas are SVG with their TeX in `data-tex`. Selecting across them paints each touched formula in the selection colour (inline ones like a word, display ones as a block), and in lines that hold inline math the words are highlighted at text height through the `markit-selection` custom highlight rather than the line-tall native one. Double-clicking a formula selects all of it. Copying a selection that holds math puts the TeX source in `text/plain`, interleaved with the words, list markers (`1.`, `-`), table tabs and code, and the drawn formulas in `text/html`; other selections copy as the browser does. A host with its own `::selection` colour sets `--mk-selection` to the same value.
+
 ### React
 
 `@markit/web/react` exports a component and a hook. React is an optional peer dependency; the core package has no runtime dependencies.

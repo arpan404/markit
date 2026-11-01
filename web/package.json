@@ -27,6 +27,8 @@
     "gpu-code.js",
     "github.js",
     "stream-hold.js",
+    "copy-text.js",
+    "math-selection.js",
     "style.css",
     "pkg",
     "licenses",
