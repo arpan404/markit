@@ -124,7 +124,14 @@ public enum Markit {
     static func decode<T: Decodable>(_ buffer: MarkitBuffer) throws -> T {
         defer { markit_buffer_free(buffer) }
         guard buffer.status == 0, let pointer = buffer.data else { throw MarkitError.renderFailed(status: buffer.status) }
-        return try JSONDecoder().decode(T.self, from: Data(bytes: pointer, count: buffer.len))
+        let data = Data(bytes: pointer, count: buffer.len)
+        // Documents are dense span arrays; the manual bridge decoder avoids
+        // JSONDecoder's per-value boxing (see BridgeDecoder). Anything else
+        // keeps the generic path.
+        if T.self == MarkitDocument.self {
+            return try BridgeDecoder.document(from: data) as! T
+        }
+        return try JSONDecoder().decode(T.self, from: data)
     }
 }
 
