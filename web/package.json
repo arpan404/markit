@@ -26,6 +26,7 @@
     "code-lines.js",
     "gpu-code.js",
     "github.js",
+    "stream-hold.js",
     "style.css",
     "pkg",
     "licenses",

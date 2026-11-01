@@ -5,6 +5,7 @@ import { morphChildren } from './dom-morph.js';
 import { engineFor } from './engine.js';
 import { scheduleFrame } from './frame.js';
 import { GithubFeatures } from './github.js';
+import { StreamHold } from './stream-hold.js';
 export { preloadMarkit, terminateMarkitWorkers } from './engine.js';
 
 const SECTIONS = 'section[data-markit-code]';
@@ -23,6 +24,8 @@ export class MarkitRenderer {
   #payloads = new WeakMap(); #views = new WeakMap();
   #urls = new Map(); #imageJobs = new Map(); #listeners;
   #gpu = new GpuCodeRenderer(); #github;
+  /** What of an open message is safe to show: unfinished markup at its end waits. */
+  #hold = new StreamHold();
   constructor(element, options = {}) {
     this.#element = element;
     this.#options = options;
@@ -77,6 +80,8 @@ export class MarkitRenderer {
     if (this.#destroyed) return Promise.reject(new Error('Renderer disposed'));
     if (typeof source !== 'string') return Promise.reject(new TypeError('Markdown must be a string'));
     const revision = ++this.#revision;
+    if (finalized) this.#hold.showAll(source);
+    else source = source.slice(0, this.#hold.shownLength(source));
     return new Promise((resolve, reject) => {
       if (this.#queued) this.#queued.resolve({ superseded: true });
       this.#queued = { source, finalized, revision, resolve, reject };
