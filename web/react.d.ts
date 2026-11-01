@@ -20,6 +20,8 @@ export interface MarkitController {
   render(source: string, options?: { finalized?: boolean }): Promise<RenderPatch | { superseded: true }>;
   append(delta: string): Promise<RenderPatch | { superseded: true }>;
   finish(): Promise<RenderPatch | { superseded: true }>;
+  /** Asks `resolveImage` again for each image still without bytes. */
+  refreshImages(): void;
 }
 export function useMarkit(options?: MarkitHookOptions): MarkitController;
 export interface MarkitProps extends MarkitHookOptions, Omit<ComponentPropsWithoutRef<'div'>, 'onError'> {

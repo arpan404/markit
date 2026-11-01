@@ -215,6 +215,15 @@ export class MarkitRenderer {
       if (url) { URL.revokeObjectURL(url); this.#urls.delete(image); }
     }
   }
+  /** Asks the host again for every image still without bytes, for when it may have them now
+   * (a capture that arrived after the message). Images already shown or still being asked for
+   * are left alone. */
+  refreshImages() {
+    if (this.#destroyed || !this.#options.resolveImage) return;
+    for (const image of this.#element.querySelectorAll('img[data-markit-src]')) {
+      if (!image.getAttribute('src') && !this.#imageJobs.has(image)) this.#resolveImage(image);
+    }
+  }
   async #resolveImage(image) {
     image.dataset.requested = 'true';
     const controller = new AbortController(); this.#imageJobs.set(image, controller);
