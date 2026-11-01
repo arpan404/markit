@@ -71,6 +71,8 @@ class MarkitController {
   }
   /** Appends streamed text to an open message. */
   append(delta) { return this.render(this.#source + delta, { finalized: false }); }
+  /** Asks the host again for images still without bytes. */
+  refreshImages() { this.#renderer?.refreshImages(); }
   /** Marks the message complete. */
   finish() { return this.render(this.#source, { finalized: true }); }
 }

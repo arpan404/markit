@@ -88,3 +88,25 @@ test('the inline engine passes the agent flavour through: footnotes drawn, issue
   assert.match(element.querySelector('p').textContent, /^Step #12 for @octocat/);
   renderer.destroy();
 });
+
+test('an image the host could not supply yet appears once refreshImages finds its bytes', async () => {
+  const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWQ0AAAAASUVORK5CYII='), c => c.charCodeAt(0));
+  let captured = false;
+  const asked = [];
+  const { element, renderer } = mount({
+    resolveImage: (url) => { asked.push(url); return captured ? new Blob([png], { type: 'image/png' }) : null; },
+  });
+  await renderer.render('![chart](./chart.png) and ![logo](./logo.png)');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.deepEqual(asked, ['./chart.png', './logo.png']);
+  assert.equal(element.querySelector('img[alt="chart"]').getAttribute('src'), null);
+  captured = true;
+  renderer.refreshImages();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(element.querySelector('img[alt="chart"]').getAttribute('src').startsWith('blob:'), true);
+  // A shown image is never asked for again.
+  renderer.refreshImages();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(asked.length, 4);
+  renderer.destroy();
+});

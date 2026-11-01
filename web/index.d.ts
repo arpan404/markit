@@ -72,6 +72,9 @@ export class MarkitRenderer {
    * with `plain: true`. Unknown non-empty languages use a generic lexer; `''` and `'text'` stay plain.
    * `grammar: true` uses the optional Sublime grammars, which keep their own smaller limits. */
   highlight(source: string, language: string, options?: { grammar?: boolean }): Promise<HighlightedCode>;
+  /** Asks `resolveImage` again for each image still without bytes, for when the host may have
+   * them now (a capture that arrived after the message). Shown and pending images are left alone. */
+  refreshImages(): void;
   destroy(): void;
 }
 /** Terminates the shared workers. Live renderers start a new one on their next request. */
