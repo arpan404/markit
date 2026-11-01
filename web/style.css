@@ -1,5 +1,5 @@
 .markit { --mk-ink:#24292f; --mk-muted:#6e7781; --mk-border:#d0d7de; --mk-surface:#f6f8fa; --mk-added:#1a7f37; --mk-removed:#cf222e; --mk-added-bg:#2ea04326; --mk-removed-bg:#f8514926; color:var(--mk-ink); font:16px/1.65 system-ui,sans-serif; overflow-wrap:anywhere; }
-@media(prefers-color-scheme:dark) { .markit { --mk-ink:#e6edf3; --mk-muted:#8b949e; --mk-border:#30363d; --mk-surface:#161b22; --mk-added:#3fb950; --mk-removed:#f85149; } }
+@media(prefers-color-scheme:dark) { .markit { --mk-ink:#e6edf3; --mk-muted:#8b949e; --mk-border:#30363d; --mk-surface:#161b22; --mk-added:#3fb950; --mk-removed:#f85149; --mk-selection:#355274; } }
 .markit.mk-pending { white-space:pre-wrap; }
 .markit .mk-block { content-visibility:auto; contain-intrinsic-size:auto 80px; margin:0 0 16px; }
 .markit :is(p,h1,h2,h3,h4,h5,h6,ul,ol,pre,blockquote,table) { margin:0 0 12px; }
@@ -49,6 +49,15 @@
 .markit .mk-gpu-active code { font-variant-ligatures:none; }
 .markit .mk-math { display:inline-block; vertical-align:middle; max-width:100%; overflow-x:auto; }
 .markit .mk-math svg { display:block; max-width:none; } .markit .mk-display { display:block; padding:12px 0; }
+/* Formulas have no text to select: a selected one is painted like selected text (math-selection.js).
+   Hosts with their own ::selection colour set --mk-selection to match. */
+.markit .mk-math[data-selected] { background:var(--mk-selection,Highlight); }
+/* Chrome paints native selection as tall as the line box, which inline math makes tall. In those
+   lines the selection is drawn through a custom highlight instead, which is as tall as the text. */
+.markit.mk-highlights :is(p,li,h1,h2,h3,h4,h5,h6,td,th,dt,dd):has(.mk-math:not(.mk-display)) *::selection,
+.markit.mk-highlights :is(p,li,h1,h2,h3,h4,h5,h6,td,th,dt,dd):has(.mk-math:not(.mk-display))::selection { background:transparent; }
+.markit.mk-highlights :is(p,li,h1,h2,h3,h4,h5,h6,td,th,dt,dd):has(.mk-math:not(.mk-display)) *::highlight(markit-selection),
+.markit.mk-highlights :is(p,li,h1,h2,h3,h4,h5,h6,td,th,dt,dd):has(.mk-math:not(.mk-display))::highlight(markit-selection) { background:var(--mk-selection,Highlight); }
 .markit .mk-alert { border-left:4px solid var(--mk-alert,#0969da); padding:4px 16px; margin:0 0 16px; }
 .markit .mk-alert>:last-child { margin-bottom:0; }
 .markit .mk-alert-title { font-weight:600; color:var(--mk-alert,#0969da); margin:0 0 4px; }

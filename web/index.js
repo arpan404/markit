@@ -6,6 +6,8 @@ import { engineFor } from './engine.js';
 import { scheduleFrame } from './frame.js';
 import { GithubFeatures } from './github.js';
 import { StreamHold } from './stream-hold.js';
+import { copyMath } from './copy-text.js';
+import { MathSelection } from './math-selection.js';
 export { preloadMarkit, terminateMarkitWorkers } from './engine.js';
 
 const SECTIONS = 'section[data-markit-code]';
@@ -23,7 +25,7 @@ export class MarkitRenderer {
   #ready = []; #cancelFrame;
   #payloads = new WeakMap(); #views = new WeakMap();
   #urls = new Map(); #imageJobs = new Map(); #listeners;
-  #gpu = new GpuCodeRenderer(); #github;
+  #gpu = new GpuCodeRenderer(); #github; #math;
   /** What of an open message is safe to show: unfinished markup at its end waits. */
   #hold = new StreamHold(); #holdStale = true; #floor = 0;
   /** The last source given, and whether every source since the last request only grew. */
@@ -45,15 +47,8 @@ export class MarkitRenderer {
       if (event.key === 'Enter' && event.target.closest('[data-markit-reference],[data-markit-footnote],[data-markit-footnote-back]')) this.#activate(event);
     }, { signal });
     element.addEventListener('change', event => this.#github.change(event), { signal });
-    element.addEventListener('copy', event => {
-      const selection = element.ownerDocument.getSelection();
-      if (!selection?.rangeCount) return;
-      const fragment = selection.getRangeAt(0).cloneContents();
-      for (const formula of fragment.querySelectorAll('[data-tex]')) formula.replaceWith(formula.dataset.tex);
-      if (fragment.querySelector('svg')) return;
-      event.clipboardData?.setData('text/plain', fragment.textContent ?? '');
-      event.preventDefault();
-    }, { signal });
+    element.addEventListener('copy', event => copyMath(event, element), { signal });
+    this.#math = new MathSelection(element, signal);
   }
   #rpc(type, fields) {
     if (this.#destroyed) return Promise.reject(new Error('Renderer disposed'));
@@ -164,6 +159,7 @@ export class MarkitRenderer {
       root.append(fragment);
     }
     for (const node of added) this.#hydrate(node);
+    this.#math.refresh();
   }
   /** One block: unchanged markup only grows its code; changed markup is morphed. */
   #update(block, payload, added) {
