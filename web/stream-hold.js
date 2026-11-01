@@ -1,194 +1,245 @@
-// While a message streams, its last line can end in markup that is not finished yet: a
-// backtick waiting for its pair, `[text](url` before the `)`, `**` before the closing `**`,
-// a table header before its delimiter row. Rendered as it stands, that markup shows as
-// literal characters, and a moment later, when it closes, they are taken back: the line
-// flickers. `StreamHold` finds where unfinished markup starts. The renderer shows the text
-// before it, and the rest once the markup closes, the line ends or the message finishes.
-// Each update scans only the lines that completed since the last one and the open line.
+// While a message streams, its open paragraph can end in markup that is not finished yet: a
+// backtick waiting for its pair (on this line or a later one), `[text](url` before the `)`,
+// `**` before the closing `**`, a table header before its delimiter row. Rendered as it
+// stands, that markup shows as literal characters, and a moment later, when it closes, they
+// are taken back: the text flickers. `StreamHold` finds where unfinished markup starts. The
+// renderer shows the text before it, and the rest once the markup closes, the paragraph ends
+// or the message finishes.
+//
+// Inline spans continue across soft line breaks and end with their paragraph, as in
+// CommonMark. An append is processed from where the last one settled: lines completed since
+// then once each, and the open paragraph from its last settled point, so the work follows the
+// new text and any span still open, never the history before them.
 
 const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
-const PIPE_ROW = /^ {0,3}\|/;
+const FENCE_AT = / {0,3}(?:`{3,}|~{3,})/y;
+const PIPE_AT = / {0,3}\|/y;
+const BLANK = /^\s*$/;
+/** Lines that are a block of their own: the open paragraph starts after them. */
+const SINGLE_LINE_BLOCK = /^ {0,3}(?:#{1,6}(?: |$)|\||(?:=+|-+|(?:[-_*][ \t]*){3,})[ \t]*$)/;
+/** Lines that open a block whose paragraph continues on the next lines. */
+const BLOCK_START_AT = / {0,3}(?:#{1,6}(?: |$)|\||\s*(?:[-*+]|\d{1,9}[.)])(?: |$))/y;
+const QUOTE_AT = / {0,3}>/y;
 /** Block markers ahead of a line's inline text: indent, quotes, a list marker, a task box, a heading. */
-const LINE_PREFIX = /^ {0,3}(?:> ?)*(?:(?:[-*+]|\d{1,9}[.)])(?: +|$)(?:\[[ xX]\] +)?|#{1,6}(?: +|$))?/;
+const LINE_PREFIX = / {0,3}(?:> ?)*(?:(?:[-*+]|\d{1,9}[.)])(?: +|$)(?:\[[ xX]\] +)?|#{1,6}(?: +|$))?/y;
 /**
  * A line that is only the start of a block marker whose meaning the next character decides:
- * a fence, a list marker, a table pipe, a rule or heading underline.
+ * a fence, a list marker, a table pipe, a rule or heading underline. Such lines are short.
  */
 const UNDECIDED_LINE = /^\s*(?:`{1,2}|~{1,2}|\d{1,9}|\|[\s|]*|(?:> ?)*(?:[-*+]|\d{1,9}[.)])\s*|[-=_*](?:\s*[-=_*])*\s*)$/;
+const UNDECIDED_MAX = 40;
+const AUTOLINK_AT = /[A-Za-z/][^\s<>]*/y;
+const SPECIAL = /[\\`[!<*_~$]/g;
 const SPACE = /\s/;
 const WORD = /[\p{L}\p{N}]/u;
 const DIGIT = /[0-9]/;
 
-export class StreamHold {
-  #source = ''; #shown = 0;
-  /** Offset just past the last complete line scanned, and the fence open there. */
-  #scanned = 0; #fence = null;
+const at = (pattern, s, index) => { pattern.lastIndex = index; return pattern.test(s); };
+const pipeAt = (s, index) => at(PIPE_AT, s, index);
 
-  /** How much of `source`, a message still streaming, to show now. */
-  shownLength(source) {
-    if (!source.startsWith(this.#source)) { this.#scanned = 0; this.#fence = null; this.#shown = 0; }
-    this.#source = source;
-    const open = source.lastIndexOf('\n') + 1;
-    this.#scanFences(source, open);
-    const held = this.#fence ? fenceHold(source, open, this.#fence) : heldFrom(source, open);
+export class StreamHold {
+  #length = 0; #shown = 0;
+  /** Offset just past the last complete line processed, and the fence open there. */
+  #scanned = 0; #fence = null;
+  /** Where the open paragraph starts, and whether the line before it was a quote. */
+  #unit = 0; #quoted = false;
+  /** The open paragraph is settled up to `pos` (scanned from `start`); `closers` lie past it. */
+  #checkpoint = { start: -1, pos: 0, closers: new Set() };
+
+  /** How much of `source` to show; `source` is new text, no continuation of earlier text. */
+  replace(source) {
+    this.#length = 0; this.#shown = 0; this.#scanned = 0; this.#fence = null;
+    this.#unit = 0; this.#quoted = false; this.#checkpoint = { start: -1, pos: 0, closers: new Set() };
+    return this.append(source);
+  }
+
+  /** How much of `source` to show; `source` is the text last given with more appended. */
+  append(source) {
+    const from = this.#length;
+    this.#length = source.length;
+    // Only appended text can hold a new line break.
+    const open = source.indexOf('\n', from) === -1 ? this.#scanned : source.lastIndexOf('\n') + 1;
+    this.#completeLines(source, open);
+    const held = this.#fence ? fenceHold(source, open, this.#fence) : this.#heldFrom(source, open);
     // Shown text never shrinks, even if a later character changes what came before.
     this.#shown = Math.max(this.#shown, held === -1 ? source.length : held);
     return this.#shown;
   }
 
-  /** `source` was shown whole (the message finished). */
-  showAll(source) {
-    this.shownLength(source);
-    this.#shown = source.length;
-  }
+  /** The message finished: everything given so far shows. */
+  showAll() { this.#shown = this.#length; }
 
-  #scanFences(source, open) {
+  #completeLines(source, open) {
     while (this.#scanned < open) {
-      const end = source.indexOf('\n', this.#scanned);
-      const line = source.slice(this.#scanned, end);
+      const start = this.#scanned, end = source.indexOf('\n', start);
+      const line = source.slice(start, end);
       this.#scanned = end + 1;
       const fence = FENCE.exec(line);
-      if (!fence) continue;
-      const [, marks, rest] = fence;
-      if (!this.#fence) {
-        if (!(marks[0] === '`' && rest.includes('`'))) this.#fence = { mark: marks[0], length: marks.length };
-      } else if (marks[0] === this.#fence.mark && marks.length >= this.#fence.length && !rest.trim()) this.#fence = null;
+      if (this.#fence) {
+        if (fence && fence[1][0] === this.#fence.mark && fence[1].length >= this.#fence.length && !fence[2].trim()) this.#fence = null;
+        this.#unit = end + 1; continue;
+      }
+      if (fence && !(fence[1][0] === '`' && fence[2].includes('`'))) {
+        this.#fence = { mark: fence[1][0], length: fence[1].length };
+        this.#unit = end + 1; continue;
+      }
+      const quoted = at(QUOTE_AT, source, start);
+      if (BLANK.test(line) || SINGLE_LINE_BLOCK.test(line)) this.#unit = end + 1;
+      else if (at(BLOCK_START_AT, source, start) || (quoted && !this.#quoted)) this.#unit = start;
+      this.#quoted = quoted && !BLANK.test(line);
     }
+  }
+
+  /** Where unfinished markup starts in the open paragraph, or -1 when it has none. */
+  #heldFrom(source, open) {
+    const table = tableHold(source, open);
+    if (table !== -1) return table;
+    if (source.length - open <= UNDECIDED_MAX && UNDECIDED_LINE.test(source.slice(open))) return open;
+    // A line that opens a block starts its own paragraph; an opening fence line waits whole.
+    const opensBlock = at(BLOCK_START_AT, source, open) || at(FENCE_AT, source, open) || (at(QUOTE_AT, source, open) && !this.#quoted);
+    const start = opensBlock ? open : this.#unit;
+    let checkpoint = this.#checkpoint;
+    if (checkpoint.start !== start) {
+      LINE_PREFIX.lastIndex = start; LINE_PREFIX.test(source);
+      checkpoint = this.#checkpoint = { start, pos: LINE_PREFIX.lastIndex, closers: new Set() };
+    }
+    const scan = inlineHold(source, checkpoint.pos, checkpoint.closers);
+    checkpoint.pos = scan.settled;
+    for (const closer of checkpoint.closers) if (closer < scan.settled) checkpoint.closers.delete(closer);
+    if (scan.held === -1) return -1;
+    // What stays of the held line must read as it will: not a lone list marker or table pipe.
+    const lineStart = source.lastIndexOf('\n', scan.held - 1) + 1;
+    return scan.held - lineStart <= UNDECIDED_MAX && UNDECIDED_LINE.test(source.slice(lineStart, scan.held)) ? lineStart : scan.held;
   }
 }
 
 /** Inside a code fence only its closing line can be unfinished: those marks are no code. */
 function fenceHold(source, open, fence) {
-  const line = source.slice(open);
-  return line && new RegExp(`^ {0,3}\\${fence.mark}*$`).test(line) ? open : -1;
-}
-
-/** Where unfinished markup starts in the open line (from `open`), or -1 when it has none. */
-function heldFrom(source, open) {
-  const line = source.slice(open);
-  const previous = lineBefore(source, open);
-  const table = tableHold(source, open, line, previous);
-  if (table !== -1) return table;
-  if (UNDECIDED_LINE.test(line)) return open;
-  const at = inlineHold(line, LINE_PREFIX.exec(line)[0].length);
-  // What stays of the line must read as it will: not a lone list marker or table pipe.
-  return at === -1 ? -1 : UNDECIDED_LINE.test(line.slice(0, at)) ? open : open + at;
-}
-
-function lineBefore(source, open) {
-  if (open === 0) return undefined;
-  const start = source.lastIndexOf('\n', open - 2) + 1;
-  return { start, text: source.slice(start, open - 1) };
+  if (open === source.length || source.length - open > UNDECIDED_MAX) return -1;
+  return new RegExp(`^ {0,3}\\${fence.mark}*$`).test(source.slice(open)) ? open : -1;
 }
 
 /** A table shows once its delimiter row is complete; until then its header could be prose. */
-function tableHold(source, open, line, previous) {
-  if (PIPE_ROW.test(line) && !(previous && PIPE_ROW.test(previous.text))) return open;
-  if (!previous || !PIPE_ROW.test(previous.text)) return -1;
-  const before = lineBefore(source, previous.start);
+function tableHold(source, open) {
+  const empty = open === source.length;
+  if (!empty && !pipeAt(source, open)) return -1;
+  if (open === 0) return empty ? -1 : open;
+  const previous = source.lastIndexOf('\n', open - 2) + 1;
+  if (!pipeAt(source, previous)) return empty ? -1 : open;
   // `previous` is a header whose delimiter row is still being written (or not started).
-  if (!(before && PIPE_ROW.test(before.text)) && (line === '' || PIPE_ROW.test(line)))
-    return previous.start;
-  return -1;
+  const before = previous === 0 ? -1 : source.lastIndexOf('\n', previous - 2) + 1;
+  return before !== -1 && pipeAt(source, before) ? -1 : previous;
 }
 
-/** Where the first unfinished inline span of `line` opens, scanning from `from`; -1 if none. */
-function inlineHold(line, from) {
-  const closers = new Set();
-  for (let i = from; i < line.length;) {
-    const c = line[i];
-    if (c === '\\') { i += 2; continue; }
+/**
+ * Scans `s` from `from` (everything before it settled) for the first unfinished inline span.
+ * Returns where it opens (`held`, -1 if none) and how far the text is `settled`: no later
+ * character can change how it reads. Closing runs found ahead are noted in `closers`.
+ */
+function inlineHold(s, from, closers) {
+  const end = s.length;
+  let i = from;
+  const held = position => ({ held: position, settled: position });
+  for (;;) {
+    SPECIAL.lastIndex = i;
+    const special = SPECIAL.exec(s);
+    if (!special) return { held: -1, settled: end };
+    i = special.index;
+    const c = s[i];
+    if (c === '\\') {
+      // A trailing backslash escapes whatever comes next, and then disappears.
+      if (i + 1 === end) return held(i);
+      i += 2; continue;
+    }
     if (c === '`') {
-      const after = codeSpanEnd(line, i);
-      if (after === -1 || after === line.length) return i;
+      const after = codeSpanEnd(s, i);
+      if (after === -1 || after === end) return held(i);
       i = after; continue;
     }
-    if (c === '[' || (c === '!' && line[i + 1] === '[')) {
-      const after = linkEnd(line, c === '!' ? i + 1 : i);
-      if (after === -1) return i;
+    if (c === '[' || c === '!') {
+      if (c === '!' && s[i + 1] !== '[') { if (i + 1 === end) return held(i); i++; continue; }
+      const after = linkEnd(s, c === '!' ? i + 1 : i);
+      if (after === -1) return held(i);
       i = after; continue;
     }
     if (c === '<') {
-      if (/^(?:[A-Za-z/][^\s<>]*)?$/.test(line.slice(i + 1))) return i;
+      AUTOLINK_AT.lastIndex = i + 1;
+      if (i + 1 === end || (AUTOLINK_AT.test(s) && AUTOLINK_AT.lastIndex === end)) return held(i);
       i++; continue;
     }
-    if (c === '*' || c === '_' || c === '~' || c === '$') {
-      const length = runLength(line, i);
-      if (closers.has(i)) { i += length; continue; }
-      const held = delimiterHold(line, i, length, closers);
-      if (held !== -1) return held;
-      i += length; continue;
-    }
-    i++;
+    const length = runLength(s, i);
+    if (closers.has(i)) { closers.delete(i); i += length; continue; }
+    const hold = delimiterHold(s, i, length, closers);
+    if (hold !== -1) return held(hold);
+    i += length;
   }
-  return -1;
 }
 
-function runLength(line, at) {
-  let end = at;
-  while (line[end] === line[at]) end++;
-  return end - at;
+function runLength(s, start) {
+  let end = start;
+  while (s[end] === s[start]) end++;
+  return end - start;
 }
 
-/** Just past the code span opening at `at`, or -1 while its closing run has not arrived. */
-function codeSpanEnd(line, at) {
-  const length = runLength(line, at);
-  for (let j = line.indexOf('`', at + length); j !== -1; j = line.indexOf('`', j)) {
-    const run = runLength(line, j);
+/** Just past the code span opening at `start`, or -1 while its closing run has not arrived. */
+function codeSpanEnd(s, start) {
+  const length = runLength(s, start);
+  for (let j = s.indexOf('`', start + length); j !== -1; j = s.indexOf('`', j)) {
+    const run = runLength(s, j);
     if (run === length) return j + run;
     j += run;
   }
   return -1;
 }
 
-/** Just past a link or bracket opening at `at`, or -1 while it could still become a link. */
-function linkEnd(line, at) {
+/** Just past a link or bracket opening at `start`, or -1 while it could still become a link. */
+function linkEnd(s, start) {
   let depth = 0, close = -1;
-  for (let j = at; j < line.length; j++) {
-    const c = line[j];
+  for (let j = start; j < s.length; j++) {
+    const c = s[j];
     if (c === '\\') { j++; continue; }
-    if (c === '`') { const after = codeSpanEnd(line, j); if (after === -1) return -1; j = after - 1; continue; }
+    if (c === '`') { const after = codeSpanEnd(s, j); if (after === -1) return -1; j = after - 1; continue; }
     if (c === '[') depth++;
     else if (c === ']' && --depth === 0) { close = j; break; }
   }
-  if (close === -1 || close + 1 === line.length) return -1;
-  const next = line[close + 1];
-  if (next === '[') { const end = line.indexOf(']', close + 2); return end === -1 ? -1 : end + 1; }
+  if (close === -1 || close + 1 === s.length) return -1;
+  const next = s[close + 1];
+  if (next === '[') { const end = s.indexOf(']', close + 2); return end === -1 ? -1 : end + 1; }
   // Plain brackets: their text reads on, inline markup inside them included.
-  if (next !== '(') return at + 1;
+  if (next !== '(') return start + 1;
   let parens = 0;
-  for (let j = close + 1; j < line.length; j++) {
-    if (line[j] === '\\') { j++; continue; }
-    if (line[j] === '(') parens++;
-    else if (line[j] === ')' && --parens === 0) return j + 1;
+  for (let j = close + 1; j < s.length; j++) {
+    if (s[j] === '\\') { j++; continue; }
+    if (s[j] === '(') parens++;
+    else if (s[j] === ')' && --parens === 0) return j + 1;
   }
   return -1;
 }
 
 /**
- * An emphasis, strikethrough or math run at `at`: where to hold from when it opens a span
+ * An emphasis, strikethrough or math run at `start`: where to hold from when it opens a span
  * that has not closed yet, else -1. A closing run it finds is noted in `closers`.
  */
-function delimiterHold(line, at, length, closers) {
-  const mark = line[at], before = line[at - 1], next = line[at + length];
+function delimiterHold(s, start, length, closers) {
+  const mark = s[start], before = s[start - 1], next = s[start + length];
   // A run at the very end could still open a span with the next character.
-  if (next === undefined) return at;
+  if (next === undefined) return start;
   if (mark === '~' && length !== 2) return -1;
   if (mark === '$' && (length !== 1 || DIGIT.test(next))) return -1;
   if (SPACE.test(next)) return -1;
   if (mark === '_' && before !== undefined && WORD.test(before)) return -1;
-  for (let j = line.indexOf(mark, at + length); j !== -1; j = line.indexOf(mark, j)) {
-    const run = runLength(line, j), after = line[j + run];
-    const closes = !SPACE.test(line[j - 1]) && (mark !== '_' || after === undefined || !WORD.test(after))
+  for (let j = s.indexOf(mark, start + length); j !== -1; j = s.indexOf(mark, j)) {
+    const run = runLength(s, j), after = s[j + run];
+    const closes = !SPACE.test(s[j - 1]) && (mark !== '_' || after === undefined || !WORD.test(after))
       && (mark !== '$' || run === 1) && (mark !== '~' || run === 2);
     if (closes) {
       // A closing run at the end could still grow, or (math) gain a digit that undoes it.
-      if (after === undefined) return at;
+      if (after === undefined) return start;
       if (mark === '$' && DIGIT.test(after)) { j += run; continue; }
       closers.add(j);
       return -1;
     }
     j += run;
   }
-  return at;
+  return start;
 }

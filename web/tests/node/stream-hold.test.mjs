@@ -79,7 +79,7 @@ test('unfinished inline markup waits until it closes, then shows whole', async (
   renderer.destroy();
 });
 
-test('held text shows once its line ends, and a finished message shows everything', async () => {
+test('held text shows once its paragraph ends, and a finished message shows everything', async () => {
   const { element, renderer } = mount();
   await renderer.render('It is 5` tall and [unsure', { finalized: false });
   assert.equal(shown(element), 'It is 5');
@@ -95,4 +95,23 @@ test('code in an open fence streams as it arrives', async () => {
   await renderer.render('```ts\nconst a = `templ', { finalized: false });
   assert.match(element.querySelector('code').textContent, /const a = `templ/);
   renderer.destroy();
+});
+
+test('a span left open at a soft line break stays held until it closes', async () => {
+  const { element, renderer } = mount();
+  await renderer.render('Run `hello\n', { finalized: false });
+  assert.equal(shown(element), 'Run');
+  await renderer.render('Run `hello\nworld` done', { finalized: false });
+  assert.equal(element.querySelector('code')?.textContent, 'hello world');
+  assert.equal(shown(element), 'Run hello world done');
+  renderer.destroy();
+});
+
+test('spans across soft line breaks never take back text, and a paragraph break ends them', async () => {
+  const source = 'Run `hello\nworld` and **bold\nacross** lines, see [the\nnotes](https://example.com/n).\n\n'
+    + 'A `stray backtick\nthat never closes.\n\nNext *one\nends* here.';
+  const screens = await stream(source, [1]);
+  for (let index = 1; index < screens.length; index++)
+    assert.ok(screens[index].startsWith(screens[index - 1]), `update ${index} took back text:\n  showed …${screens[index - 1].slice(-60)}\n  then   …${screens[index].slice(-60)}`);
+  assert.match(screens.at(-1), /A `stray backtick that never closes\. Next one ends here\.$/);
 });

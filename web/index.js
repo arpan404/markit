@@ -25,7 +25,9 @@ export class MarkitRenderer {
   #urls = new Map(); #imageJobs = new Map(); #listeners;
   #gpu = new GpuCodeRenderer(); #github;
   /** What of an open message is safe to show: unfinished markup at its end waits. */
-  #hold = new StreamHold();
+  #hold = new StreamHold(); #holdStale = true; #floor = 0;
+  /** The last source given, and whether every source since the last request only grew. */
+  #given; #grown = false;
   constructor(element, options = {}) {
     this.#element = element;
     this.#options = options;
@@ -59,12 +61,12 @@ export class MarkitRenderer {
     return this.#engine.call(this, type, fields);
   }
   /** Sends only the appended text when the source grew from the last request. */
-  async #renderPatch(source, finalized) {
+  async #renderPatch(source, finalized, grown) {
     for (let attempt = 0; ; attempt++) {
       const generation = this.#engine.ensure();
       if (generation !== this.#generation) { this.#generation = generation; this.#sent = undefined; this.#dirty = 0; }
       const sent = this.#sent;
-      const fields = sent !== undefined && source.startsWith(sent)
+      const fields = sent !== undefined && grown
         ? { stream: this.#stream, append: source.slice(sent.length), finalized }
         : { stream: this.#stream, source, finalized };
       if (this.#options.flavor) fields.flavor = this.#options.flavor;
@@ -76,15 +78,25 @@ export class MarkitRenderer {
       }
     }
   }
-  render(source, { finalized = true } = {}) {
+  render(source, { finalized = true, appended } = {}) {
     if (this.#destroyed) return Promise.reject(new Error('Renderer disposed'));
     if (typeof source !== 'string') return Promise.reject(new TypeError('Markdown must be a string'));
     const revision = ++this.#revision;
-    if (finalized) this.#hold.showAll(source);
-    else source = source.slice(0, this.#hold.shownLength(source));
+    // One comparison tells an append from a replacement, for the hold and the worker alike.
+    const given = this.#given;
+    const grew = given !== undefined && (appended ?? (source.length >= given.length && source.startsWith(given)));
+    this.#given = source;
+    this.#grown = this.#grown && grew;
+    if (!grew) this.#floor = 0;
+    if (finalized) { this.#holdStale = true; this.#floor = source.length; }
+    else {
+      const shown = grew && !this.#holdStale ? this.#hold.append(source) : this.#hold.replace(source);
+      this.#holdStale = false;
+      source = source.slice(0, Math.max(shown, this.#floor));
+    }
     return new Promise((resolve, reject) => {
       if (this.#queued) this.#queued.resolve({ superseded: true });
-      this.#queued = { source, finalized, revision, resolve, reject };
+      this.#queued = { source, finalized, revision, grown: this.#grown, resolve, reject };
       this.#drain();
     });
   }
@@ -93,8 +105,10 @@ export class MarkitRenderer {
     this.#running = true;
     const job = this.#queued;
     this.#queued = undefined;
+    // Later sources are compared with this one, the last requested.
+    this.#grown = true;
     try {
-      const patch = await this.#renderPatch(job.source, job.finalized);
+      const patch = await this.#renderPatch(job.source, job.finalized, job.grown);
       if (this.#destroyed) throw new Error('Renderer disposed');
       for (const block of patch.blocks) {
         for (const code of block.codes ?? []) {
