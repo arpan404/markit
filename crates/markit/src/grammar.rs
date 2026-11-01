@@ -324,12 +324,11 @@ fn parse_code(
                 after: state.clone(),
                 runs: vec![Run {
                     len: line.len(),
-                    colors: colors(&state.path.as_slice(), light, dark),
+                    colors: colors(state.path.as_slice(), light, dark),
                 }],
             })
         } else {
-            let line = parse_line(lines[index], &state, syntaxes, light, dark)?;
-            line
+            parse_line(lines[index], &state, syntaxes, light, dark)?
         };
         state = line.after.clone();
         parsed.push(line);

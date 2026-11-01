@@ -62,10 +62,12 @@ export class MarkitRenderer {
    * text replaced it first. Results reach the DOM at most once per animation frame
    * (a macrotask when the page is hidden or has no requestAnimationFrame); the open
    * last block is updated in place and settled blocks are never rebuilt. While
-   * `finalized` is false, markup still unfinished at the end of the last line (an open
+   * `finalized` is false, markup still unfinished at the end of the open paragraph (an open
    * backtick, `[text](url` before its `)`, a table header before its delimiter row) waits
-   * until it closes, the line ends or the message finishes, so text on screen only grows. */
-  render(source: string, options?: { finalized?: boolean }): Promise<RenderPatch | { superseded: true }>;
+   * until it closes, its paragraph ends or the message finishes, so text on screen only
+   * grows. `appended: true` promises `source` is the last source with text added, which skips
+   * comparing them; work then follows the new text rather than the whole message. */
+  render(source: string, options?: { finalized?: boolean; appended?: boolean }): Promise<RenderPatch | { superseded: true }>;
   /** Colours the whole source, up to 8 MiB of UTF-8; larger sources come back as one plain token
    * with `plain: true`. Unknown non-empty languages use a generic lexer; `''` and `'text'` stay plain.
    * `grammar: true` uses the optional Sublime grammars, which keep their own smaller limits. */
