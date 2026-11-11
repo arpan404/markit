@@ -12,7 +12,14 @@
       "types": "./react.d.ts",
       "import": "./react.js"
     },
-    "./pkg/markit_wasm_bg.wasm": "./pkg/markit_wasm_bg.wasm"
+    "./pkg/markit_wasm_bg.wasm": "./pkg/markit_wasm_bg.wasm",
+    "./pkg/markit_wasm.js": {
+      "types": "./pkg/markit_wasm.d.ts",
+      "import": "./pkg/markit_wasm.js"
+    },
+    "./worker.js": "./worker.js",
+    "./render-core.js": "./render-core.js",
+    "./package.json": "./package.json"
   },
   "files": [
     "index.js",
