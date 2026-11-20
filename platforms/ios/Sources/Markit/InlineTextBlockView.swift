@@ -9,6 +9,11 @@ final class InlineTextBlockView: InlineBlockView, UITextViewDelegate {
     private var quotes: [(range: NSRange, depth: Int, color: UIColor?)] = []
     private var bars: [UIView] = []
     private lazy var tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
+    /// What the block shows, styled.
+    private var content = NSAttributedString()
+    /// The text view still holds older text (or none). It takes `content` once the block has a
+    /// width, so TextKit lays the text out once, at that width, and never at width zero.
+    private var stale = false
 
     override init(host: any InlineBlockHost, document: MarkitDocument, plan: InlineBlockPlan) {
         text = InlineTextStack(wraps: true)
@@ -21,7 +26,9 @@ final class InlineTextBlockView: InlineBlockView, UITextViewDelegate {
 
     override func contentDidChange() {
         let content = styler.attributed(document, range: plan.range)
-        text.view.attributedText = content
+        self.content = content
+        stale = true
+        if bounds.width > 0 { show() }
         text.applyLinkStyle(theme)
         let selectable = host?.isTextSelectable ?? true
         // Selection also enables UITextView's own link taps; without it, a tap recognizer handles links.
@@ -41,14 +48,26 @@ final class InlineTextBlockView: InlineBlockView, UITextViewDelegate {
         super.contentDidChange()
     }
 
+    /// Reads the text view's own layout when it already shows this text at `width` (a block
+    /// updated in place while streaming); otherwise lays the text out once, with no view.
     override func measure(width: CGFloat) -> CGFloat {
-        text.view.sizeThatFits(CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)).height
+        if !stale, text.container.size.width == width {
+            text.layout.ensureLayout(for: text.container)
+            return text.layout.usedRect(for: text.container).height
+        }
+        return TextMeasure.main.height(of: content, width: width)
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         text.view.frame = bounds
+        if stale, bounds.width > 0 { show() }
         layoutQuoteBars()
+    }
+
+    private func show() {
+        text.view.attributedText = content
+        stale = false
     }
 
     private func layoutQuoteBars() {
@@ -94,6 +113,7 @@ final class InlineTextBlockView: InlineBlockView, UITextViewDelegate {
     func rect(forDocumentRange range: NSRange) -> CGRect? {
         let clipped = NSIntersectionRange(range, plan.range)
         guard clipped.length > 0 else { return nil }
+        if stale { show() }
         text.layout.ensureLayout(for: text.container)
         return text.rect(for: NSRange(location: clipped.location - plan.range.location, length: clipped.length))
             .map { text.view.convert($0, to: self) }

@@ -132,10 +132,18 @@ final class GithubInlineTests: XCTestCase {
 
     // MARK: Helpers
 
-    @MainActor private func textViews(in view: UIView) -> [UITextView] {
+    /// The text views a reader sees: the inline view laid out at a phone's width first, as a
+    /// row is before it shows, since blocks hand their text to their views once they have one.
+    @MainActor private func textViews(in view: MarkitInlineView) -> [UITextView] {
+        view.frame = CGRect(x: 0, y: 0, width: 320, height: view.height(for: 320))
+        view.layoutIfNeeded()
+        return textViews(inTree: view)
+    }
+
+    @MainActor private func textViews(inTree view: UIView) -> [UITextView] {
         view.subviews.flatMap { subview -> [UITextView] in
             if let text = subview as? UITextView { return [text] }
-            return textViews(in: subview)
+            return textViews(inTree: subview)
         }
     }
 

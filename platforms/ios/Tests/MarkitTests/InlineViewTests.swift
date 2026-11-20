@@ -43,6 +43,37 @@ final class InlineViewTests: XCTestCase {
         XCTAssertGreaterThan(view.height(for: 320), settledHeight)
     }
 
+    @MainActor func testEveryTextBlockGetsTheHeightItsTextNeedsAtTheWidthItIsLaidOutAt() throws {
+        let sources = [
+            "Plain words.",
+            String(repeating: "Words that wrap across lines, with `inline code` and **bold** runs. ", count: 12),
+            "# Heading\n\nA paragraph under it.\n\n## Smaller\n\nText.",
+            "- one\n- two that runs long enough to wrap at a narrow width, surely\n  - nested\n\n1. first\n2. second",
+            "> A quote that also runs long enough to wrap onto a second line here.\n>\n> > Nested.",
+            "Emoji 🧪🧵 and 中文字符 and العربية in one line that wraps somewhere.",
+        ]
+        for source in sources {
+            let view = MarkitInlineView()
+            view.render(source)
+            // Measured at other widths first, as a list proposes sizes before it settles.
+            _ = view.height(for: 160)
+            _ = view.height(for: 480)
+            for width in [CGFloat(320), 201.5] {
+                let height = view.height(for: width)
+                view.frame = CGRect(x: 0, y: 0, width: width, height: height)
+                view.layoutIfNeeded()
+                let texts = textViews(in: view)
+                XCTAssertFalse(texts.isEmpty)
+                for text in texts {
+                    XCTAssertFalse(text.attributedText.string.isEmpty, "text shows once laid out: \(source)")
+                    let needs = ceil(text.sizeThatFits(CGSize(width: text.bounds.width, height: .greatestFiniteMagnitude)).height)
+                    XCTAssertEqual(text.bounds.height, needs, "at \(width): \(source)")
+                }
+                XCTAssertEqual(view.height(for: width), height)
+            }
+        }
+    }
+
     @MainActor func testStreamedRenderReportsItsHeight() {
         let view = MarkitInlineView()
         view.synchronousRenderLimit = 0
@@ -89,6 +120,13 @@ final class InlineViewTests: XCTestCase {
         let handled = view.open(reference.url, attributes: [.markitReference: reference.target, .markitReferenceKind: reference.kind])
         XCTAssertFalse(handled)
         XCTAssertEqual(opened, [reference])
+    }
+
+    @MainActor private func textViews(in view: UIView) -> [UITextView] {
+        view.subviews.flatMap { subview -> [UITextView] in
+            if let text = subview as? UITextView { return [text] }
+            return textViews(in: subview)
+        }
     }
 
     @MainActor private func buttons(in view: UIView) -> [UIButton] {
